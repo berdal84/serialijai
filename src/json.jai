@@ -1,0 +1,568 @@
+
+//------------------------------------------------------------------------------
+//
+// Helpers
+//
+//------------------------------------------------------------------------------
+
+parse :: (using parser: *JSON_Parser, out_data: *$T, input: string) -> success: bool
+{
+	return parse(parser, type_info(T), out_data, input);
+}
+
+parse_file :: (using parser: *JSON_Parser, out_data: *$T, file_path: string) -> success: bool
+{
+	content, file_read := read_entire_file(file_path, log_errors=true);
+	defer free(content); // The JSON_Parser will make a copy.
+	if !file_read
+	{
+		print("Unable to file '%'\n", file_path);
+		return false;
+	}
+	return parse(parser, type_info(T), out_data, content);
+}
+
+serialize :: (using serializer: *JSON_Serializer, data: *$T) -> json: string
+{
+	input_ti := type_info(T);
+	return serialize(serializer, data, input_ti);
+}
+
+serialize :: (using serializer: *JSON_Serializer, data: *void, input_ti: *Type_Info) -> json: string
+{
+	return serialize(serializer, data, input_ti);
+}
+
+//------------------------------------------------------------------------------
+//
+// JSON_Any with some utils
+//
+//------------------------------------------------------------------------------
+
+JSON_Any :: struct
+{
+	type: JSON_Any_Type = .NULL; // u8
+	union {
+		boolean : bool;
+		number  : float64;
+		str     : string;
+		array   : [..]JSON_Any;
+		object  : *JSON_Object;
+	};
+#place boolean;
+	b: bool = ---;
+#place number;
+	n: float64 = ---;
+#place str;
+	s: string = ---;
+#place array;
+	a: [..]JSON_Any = ---;
+#place object;
+	o: *JSON_Object = ---;
+}
+
+JSON_Any_Type :: enum u8
+{
+	NULL    :: 0;
+	BOOLEAN :: 1;
+	NUMBER  :: 2;
+	STRING  :: 3;
+	ARRAY   :: 4;
+	OBJECT  :: 5;
+}
+
+JSON_Object :: Table(string, JSON_Any);
+
+json_deep_copy :: (target: *JSON_Any, source: JSON_Any)
+{
+	assert(false, "Not implemented!");
+}
+
+json_copy :: (source: JSON_Any) -> JSON_Any
+{
+	result: JSON_Any;
+	JSON_copy(*result, source);
+	return result; 
+}
+
+json_copy :: (target: *JSON_Any, source: JSON_Any)
+{
+	if source.type == {
+		case .STRING;
+		target.type = .STRING;
+			target.str = copy_string(source.str);
+		case .NULL;
+		case .NUMBER;
+		case .BOOLEAN;
+			target.* = source;
+		case;
+			print("type: %\n", source.type);
+			assert(false, "Not implemented!");
+	}
+}
+
+json_release :: (any: *JSON_Any)
+{
+	if any.type == {
+		case .STRING;
+		{
+			free(any.str);
+		}
+		case .ARRAY;
+		{
+			for * elem : any.array
+				json_release(elem);
+			array_free(any.array);
+		}
+		case .OBJECT;
+		{
+			for any.object.entries
+			{
+				free(it.key);
+				json_release(*it.value);
+			}
+			deinit(any.object);
+			any.object = null;
+		}
+		case;
+			// stack
+	}
+}
+
+//
+// TODO: this should be able to handle chained keys:
+//       ex: JSON_find(*value, "field.sub_field.sub_sub_field");
+json_find :: (value: JSON_Any, key: string) -> *JSON_Any
+{
+	if value.type == .OBJECT
+	{
+		return table_find_pointer(value.object, key);
+	}
+	return null;
+}
+
+//------------------------------------------------------------------------------
+//
+// Serialization
+//
+//------------------------------------------------------------------------------
+
+// JSON Serializer, uses an internal buffer to accumulate strings
+// Most of its procedures can be replaced by assigning a custom procedure.
+JSON_Serializer :: struct
+{	
+	output_sb  : String_Builder;
+	prettify   := false; // when true, insert spaces/tabs/newlines
+
+	// overridable procedures:
+
+	serialize          := json_serialize;
+	serialize_null     := json_serialize_null;
+	serialize_bool     := json_serialize_bool;
+	serialize_integer  := json_serialize_integer;
+	serialize_float    := json_serialize_float;
+	serialize_string   := json_serialize_string;
+	serialize_table    := json_serialize_table;
+	serialize_value    := json_serialize_value;
+	serialize_struct   := json_serialize_struct;
+	serialize_JSON_Any := json_serialize_JSON_Any;
+	serialize_array    := json_serialize_array;
+	serialize_enum     := json_serialize_enum;
+}
+
+json_init :: (using serializer: *JSON_Serializer)
+{
+	init_string_builder(*output_sb);
+}
+
+json_release :: (using serializer: *JSON_Serializer)
+{
+	reset(*output_sb);
+}
+
+json_serialize_JSON_Any :: (using serializer: *JSON_Serializer, out_data: *void) -> bool
+{
+	return generic_serialize_JSON_Any(serializer, out_data);
+}
+
+json_serialize_null :: (using serializer: *JSON_Serializer) -> success: bool
+{
+	return json_serialize_formatted_string(serializer, "null");
+}
+
+json_serialize_bool :: (using serializer: *JSON_Serializer, data: bool) -> success: bool
+{
+	return json_serialize_formatted_string(serializer, ifx data "true" else "false");
+}
+
+json_serialize_integer :: (using serializer: *JSON_Serializer, data: s64) -> success: bool
+{
+	return json_serialize_formatted_string(serializer, "%", data);
+}
+
+json_serialize_float :: (using serializer: *JSON_Serializer, data: float64) -> success: bool
+{
+	return json_serialize_formatted_string(serializer, "%", data);
+}
+
+json_serialize_string :: (using serializer: *JSON_Serializer, data: string) -> success: bool
+{
+	return json_serialize_formatted_string(serializer, "\"%\"", data);
+}
+
+json_serialize_table :: (using serializer: *JSON_Serializer, data: *void, data_ti: *Type_Info_Struct) -> success: bool
+{
+	if data_ti == {
+		// some common Table types
+		case type_info(Table(string, string));  return json_serialize_table_T(serializer, cast(*Table(string, string))data);
+		case type_info(Table(string, bool));    return json_serialize_table_T(serializer, cast(*Table(string, bool))data);
+		case type_info(Table(string, u8));      return json_serialize_table_T(serializer, cast(*Table(string, u8))data);
+		case type_info(Table(string, u16));     return json_serialize_table_T(serializer, cast(*Table(string, u16))data);
+		case type_info(Table(string, u32));     return json_serialize_table_T(serializer, cast(*Table(string, u32))data);
+		case type_info(Table(string, u64));     return json_serialize_table_T(serializer, cast(*Table(string, u64))data);
+		case type_info(Table(string, s8));      return json_serialize_table_T(serializer, cast(*Table(string, s8))data);
+		case type_info(Table(string, s16));     return json_serialize_table_T(serializer, cast(*Table(string, s16))data);
+		case type_info(Table(string, s32));     return json_serialize_table_T(serializer, cast(*Table(string, s32))data);
+		case type_info(Table(string, s64));     return json_serialize_table_T(serializer, cast(*Table(string, s64))data);
+		case type_info(Table(string, float32)); return json_serialize_table_T(serializer, cast(*Table(string, float32))data);
+		case type_info(Table(string, float64)); return json_serialize_table_T(serializer, cast(*Table(string, float64))data);
+		case type_info(Table(string, JSON_Any));return json_serialize_table_T(serializer, cast(*Table(string, JSON_Any))data);
+	}
+
+	return false;
+}
+
+json_serialize_table_T :: (using serializer: *JSON_Serializer, table: *$T/Table) -> success: bool
+{
+	json_serialize_formatted_string(serializer, "{");
+
+	item_count := 0;
+
+	for * entry : table.entries
+	{
+		if entry.key == "" continue; // TODO: I had to filter entry based on non-empty keys, otherwise I got many keyval with empty key and null value, I have to investigate the serializer.
+
+		if item_count != 0
+			json_serialize_formatted_string(serializer, ",");
+
+		if !serialize_value(serializer, *entry.key, type_info(T.Key_Type))
+			return false;
+
+		json_serialize_formatted_string(serializer, ":");
+
+		if !serialize_value(serializer, *entry.value, type_info(T.Value_Type))
+			return false;
+
+		item_count += 1;
+	}
+
+	json_serialize_formatted_string(serializer, "}");
+
+	return true;
+}
+
+json_serialize_array :: (using serializer: *JSON_Serializer, array_addr: *void, data_ti: *Type_Info_Array) -> success: bool
+{
+	assert(data_ti.array_type != .FIXED, "not implemented yet");
+
+	json_serialize_formatted_string(serializer, "[");
+
+	base_addr : *u8 = ifx data_ti.array_type == .FIXED then xx array_addr       else (cast(*[]u8)array_addr).data;
+	count     : s64 = ifx data_ti.array_type == .FIXED then data_ti.array_count else (cast(*[]u8)array_addr).count;
+
+	for i : 0..count-1
+	{
+		if i != 0 json_serialize_formatted_string(serializer, ",");
+
+		if !serialize_value(serializer, base_addr + i * data_ti.element_type.runtime_size, type_info(JSON_Any))
+			return false;
+	}
+	json_serialize_formatted_string(serializer, "]");
+
+	return true;
+}
+
+json_serialize_struct :: (using serializer: *JSON_Serializer, data: *void, ti: *Type_Info_Struct) -> success: bool
+{
+	if ti == type_info(JSON_Any)
+	{
+		return json_serialize_JSON_Any(serializer, data);
+	}
+
+	if ti.name == "Table"
+	{
+		if ti == {
+			case type_info(Table(string, JSON_Any)); return json_serialize_table_T(serializer, cast(*Table(string, JSON_Any))data );
+			case; assert(false, "Not handled yet");
+		}
+	}
+
+	json_serialize_formatted_string(serializer, "{");
+
+	member_index := 0;
+	for it: ti.members
+	{
+		if member_index != 0
+		{
+			json_serialize_formatted_string(serializer, ",");
+		}
+
+		if it.offset_into_constant_storage >= 0
+		{
+			#if DEBUG print("offset_into_constant_storage is not handled yet\n");
+			continue;
+		}
+
+		// key
+		key := it.name;
+		if !serialize_string(serializer, key)
+		{
+			print("Unable to serialize key: \"%\"\n", key);
+			return false;
+		}
+
+		// separator
+		json_serialize_formatted_string(serializer, ":");
+
+		// value
+		member_addr := (cast(*u8)data) + it.offset_in_bytes;
+		if !serialize_value(serializer, member_addr, it.type)
+		{
+			print("Unable to serialize member: %\n", key);
+			return false;
+		}
+
+		member_index += 1;
+	}
+
+	json_serialize_formatted_string(serializer, "}");
+
+	return true;
+}
+
+json_serialize_enum :: (using serializer: *JSON_Serializer, data: *void, data_ti: *Type_Info_Enum) -> success: bool
+{
+	// For now we serialize the name, more readable in JSON.
+	name := data_ti.names[(cast(*u32)data).*];
+	return serialize_string(serializer, name);
+}
+
+json_serialize_value :: (using serializer: *JSON_Serializer, data: *void, data_ti: *Type_Info) -> success: bool
+{
+	if data_ti.type == {
+		case .BOOL;    return serialize_bool(serializer, (cast(*bool)data).* );
+		case .INTEGER; return serialize_integer(serializer, (cast(*s32)data).*);
+		case .FLOAT;   return serialize_float(serializer, (cast(*float64)data).*);
+		case .STRING;  return serialize_string(serializer, (cast(*string)data).* );
+		case .ARRAY;   return serialize_array(serializer, data, xx data_ti);
+		case .STRUCT;  return serialize_struct(serializer, data, xx data_ti);
+		case .ENUM;    return serialize_enum(serializer, data, xx data_ti);
+		
+		// skip
+		case .PROCEDURE; return true;
+		case .POINTER;   return true;
+	}
+	assert(false, "Unhandled case! %\n", data_ti.type);
+	return false;
+}
+
+json_serialize :: (using serializer: *JSON_Serializer, data: *void, ti: *Type_Info) -> result: string
+{
+	ok := serialize_value(serializer, data, ti);
+	result := builder_to_string(*output_sb,, allocator = temp);
+	assert(ok); // asserts after print
+	return result;
+}
+
+json_serialize_formatted_string :: (using serializer: *JSON_Serializer, format_string : string, args: .. Any) -> bool
+{
+	return print_to_builder(*output_sb, format_string, ..args);
+}
+
+//------------------------------------------------------------------------------
+//
+// Parsing
+//
+//------------------------------------------------------------------------------
+
+JSON_Parser :: struct
+{	
+	// data
+
+	verbose    := false;
+	input_text : string; // owned, input is always copied when parsing begins
+	remainer   : string;
+	messages   : [..]Generic_Parser_Message;
+
+	// overridable procedures:
+
+	parse                    := json_parse;
+	parse_begin              := json_parse_begin;
+	parse_end                := json_parse_end;
+      
+	parse_value              := json_parse_value;
+      
+	parse_object             := json_parse_object;
+	parse_object_begin       := json_parse_object_begin;
+	parse_object_body        := json_parse_object_body;
+	parse_object_end         := json_parse_object_end;	
+	parse_value_separator    := json_parse_value_separator;
+	parse_keyvalue_separator := json_parse_keyvalue_separator;
+
+	parse_table_body         := json_parse_table_body;
+      
+	parse_array              := json_parse_array;
+	parse_array_begin        := json_parse_array_begin;
+	parse_array_body         := json_parse_array_body;
+	parse_array_end          := json_parse_array_end;
+      
+	parse_integer            := json_parse_integer;  
+	parse_float              := json_parse_float;    
+	parse_string             := json_parse_string;   
+	parse_bool               := json_parse_bool;     
+	parse_null               := json_parse_null;     
+      
+	error                    := json_error;
+}
+
+json_init :: (using parser: *JSON_Parser)
+{
+	parser.* = .{};
+
+	input_text = "";
+	remainer   = input_text;
+}
+
+json_reset :: (using parser : *JSON_Parser, source: string)
+{	
+	if input_text.count != 0
+	{
+		free(parser.input_text);
+	}
+
+	input_text = copy_string(source); // since we keep this internally, we copy. We don't want it to change or be dellocated while parsing.
+	remainer   = input_text;
+	
+	// note: array_reset free memory, but we don't want that here. Let's save an alloc.
+	messages.count = 0; // message's strings are allocated using temp
+}
+
+json_release :: (parser: *JSON_Parser)
+{
+	free(parser.input_text); // was copied, see JSON_init_parser(...)
+
+	// note: array_reset free memory (which is something that might change, table_reset does not for example)
+	array_reset(*parser.messages); // message's strings are allocated using temp
+}
+
+// For now, there is nothing specific about JSON for those procedures,
+// I share them with other parsers.
+json_parse_integer     :: generic_parse_integer;
+json_parse_float       :: generic_parse_float;
+json_parse_string      :: generic_parse_string;
+json_parse_bool        :: generic_parse_bool;
+json_parse_null        :: (in_text: *string) -> bool                                                      { return generic_parse_word(in_text, "null"); }
+json_parse             :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void, text: string) -> bool { return generic_parse(parser, ti, data, text); } // out_data must be initialized
+json_parse_value       :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void) -> bool               { return generic_parse_value(parser, ti, data); } // out_data must be  
+json_parse_object      :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object(parser, tis, data); }
+json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object_body(parser, tis, data); };
+json_parse_table       :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table(p, tis, out_data); };
+json_parse_table_body  :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table_body(p, tis, out_data); };
+json_parse_array       :: (p: *JSON_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array(p, tia, out_data); };
+json_parse_array_body  :: (p: *JSON_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array_body(p, tia, out_data); };
+
+json_parse_object_begin :: (parser: *JSON_Parser) -> success : bool
+{
+	return eat_char(*parser.remainer, #char "{");
+}
+
+json_parse_object_end :: (parser: *JSON_Parser) -> success : bool
+{
+	return eat_char(*parser.remainer, #char "}");
+}
+
+json_parse_array_begin :: (parser: *JSON_Parser) -> success: bool
+{
+	return eat_char(*parser.remainer, #char "[");
+}
+
+json_parse_array_end :: (parser: *JSON_Parser) -> success: bool
+{
+	return eat_char(*parser.remainer, #char "]");
+}
+
+json_parse_object_T :: (parser: *JSON_Parser, out_data: *$T) -> bool
+{
+	return parser.parse_object(parser, type_info(T), out_data);
+}
+
+json_parse_value_separator :: (in_text: *string) -> success: bool
+{
+	return eat_char(in_text, #char ",");
+}
+
+json_parse_keyvalue_separator :: (in_text: *string) -> success: bool
+{
+	return eat_char(in_text, #char ":");
+}
+
+json_parse_begin :: (using parser : *JSON_Parser, source: string) -> success: bool
+{
+	json_reset(parser, source);
+
+	if parser.verbose
+	{
+		print("______________________________________________________________\n");
+		print("\n");
+		print(" json_parse_begin() - Parsing json: '%'\n", source);
+		print("\n");
+	}
+
+	return true; // no reason to fail for now...
+}
+
+json_parse_end :: (using parser: *JSON_Parser) -> success: bool
+{
+	eat_spaces(*remainer);
+
+	if remainer.count
+	{
+		return error(parser, "Could not parse further");
+	}
+	
+	if verbose print("json_parse_end()\n");
+	
+	return true;
+}
+
+json_parse_table_T :: (using parser: *JSON_Parser, out_data: *Table) -> success: bool
+{
+	return parse_table_begin(parser)
+		&& parse_table_body_template(parser, out_data)
+		&& parse_table_end(parser);
+}
+
+json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, location := #caller_location) -> bool
+{
+	array_add(*messages, Generic_Parser_Message.{ .ERROR, tprint(string_format, ..args), remainer.data, location } );
+	return false;
+}
+
+json_make_report :: (parser : *JSON_Parser = null) -> Generic_Parser_Report
+{
+	push_allocator(temp);
+
+	// make report from state
+	report: Generic_Parser_Report;
+	report.input_text = parser.input_text;
+
+	for message : parser.messages
+	{
+		if message.type == .ERROR
+		{
+			array_add(*report.errors, copy_message(message));
+		}
+	}
+
+	return report;
+}

@@ -1,0 +1,26 @@
+{
+	"folders": [{
+		"path": ".",
+	},{
+		"path": "~/jai",
+	}],
+	"build_systems":[{
+			"name": "Jai",
+			"working_dir": "${project_path}",
+			"file_regex": "^[^/]*(/[^:]*):(\\d+)(,\\d+)?(.*)$",
+			"variants": [{
+				"name": "Build and Run serialiser.specs",
+				"shell_cmd": "mkdir -p bin && ~/jai/bin/jai-linux tests/parser.specs.jai -output_path ${project_path}/bin && cd ${project_path} && ./bin/parser.specs",
+			},{
+				"name": "Build and Run examples",
+				"shell_cmd": "mkdir -p bin && ~/jai/bin/jai-linux examples/examples.jai -output_path ${project_path}/bin && cd ${project_path} && ./bin/examples",
+			},{
+				"name": "Clean",
+				"shell_cmd": "rm -r ${project_path}/bin  2> /dev/null",
+			}]
+	}],
+	"settings": {
+		"word_wrap": false,
+		"rulers": [80]
+	}
+}
