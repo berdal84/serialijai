@@ -5,33 +5,7 @@
 //
 //------------------------------------------------------------------------------
 
-parse :: (using parser: *JSON_Parser, out_data: *$T, input: string) -> success: bool
-{
-	return parse(parser, type_info(T), out_data, input);
-}
 
-parse_file :: (using parser: *JSON_Parser, out_data: *$T, file_path: string) -> success: bool
-{
-	content, file_read := read_entire_file(file_path, log_errors=true);
-	defer free(content); // The JSON_Parser will make a copy.
-	if !file_read
-	{
-		print("Unable to file '%'\n", file_path);
-		return false;
-	}
-	return parse(parser, type_info(T), out_data, content);
-}
-
-serialize :: (using serializer: *JSON_Serializer, data: *$T) -> json: string
-{
-	input_ti := type_info(T);
-	return serialize(serializer, data, input_ti);
-}
-
-serialize :: (using serializer: *JSON_Serializer, data: *void, input_ti: *Type_Info) -> json: string
-{
-	return serialize(serializer, data, input_ti);
-}
 
 //------------------------------------------------------------------------------
 //
@@ -399,15 +373,15 @@ JSON_Parser :: struct
 	parse                    := json_parse;
 	parse_begin              := json_parse_begin;
 	parse_end                := json_parse_end;
-      
+    parse_key                := json_parse_key;          
+    parse_separator          := json_parse_separator;
+	parse_kv_separator       := json_parse_kv_separator;
 	parse_value              := json_parse_value;
       
 	parse_object             := json_parse_object;
 	parse_object_begin       := json_parse_object_begin;
 	parse_object_body        := json_parse_object_body;
 	parse_object_end         := json_parse_object_end;	
-	parse_value_separator    := json_parse_value_separator;
-	parse_keyvalue_separator := json_parse_keyvalue_separator;
 
 	parse_table_body         := json_parse_table_body;
       
@@ -421,7 +395,7 @@ JSON_Parser :: struct
 	parse_string             := json_parse_string;   
 	parse_bool               := json_parse_bool;     
 	parse_null               := json_parse_null;     
-      
+	  
 	error                    := json_error;
 }
 
@@ -455,6 +429,25 @@ json_release :: (parser: *JSON_Parser)
 	array_reset(*parser.messages); // message's strings are allocated using temp
 }
 
+make_report :: (parser : *JSON_Parser) -> Generic_Parser_Report
+{
+	push_allocator(temp);
+
+	// make report from state
+	report: Generic_Parser_Report;
+	report.input_text = parser.input_text;
+
+	for message : parser.messages
+	{
+		if message.type == .ERROR
+		{
+			array_add(*report.errors, copy_message(message));
+		}
+	}
+
+	return report;
+}
+
 // For now, there is nothing specific about JSON for those procedures,
 // I share them with other parsers.
 json_parse_integer     :: generic_parse_integer;
@@ -465,29 +458,34 @@ json_parse_null        :: (in_text: *string) -> bool                            
 json_parse             :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void, text: string) -> bool { return generic_parse(parser, ti, data, text); } // out_data must be initialized
 json_parse_value       :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void) -> bool               { return generic_parse_value(parser, ti, data); } // out_data must be  
 json_parse_object      :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object(parser, tis, data); }
-json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object_body(parser, tis, data); };
+json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_keyvalues(parser, tis, data); };
 json_parse_table       :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table(p, tis, out_data); };
 json_parse_table_body  :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table_body(p, tis, out_data); };
 json_parse_array       :: (p: *JSON_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array(p, tia, out_data); };
 json_parse_array_body  :: (p: *JSON_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array_body(p, tia, out_data); };
+json_parse_key         :: generic_parse_string;
 
-json_parse_object_begin :: (parser: *JSON_Parser) -> success : bool
+json_parse_object_begin :: (parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool
 {
+	eat_spaces(*parser.remainer);
 	return eat_char(*parser.remainer, #char "{");
 }
 
-json_parse_object_end :: (parser: *JSON_Parser) -> success : bool
+json_parse_object_end :: (parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool
 {
+	eat_spaces(*parser.remainer);
 	return eat_char(*parser.remainer, #char "}");
 }
 
 json_parse_array_begin :: (parser: *JSON_Parser) -> success: bool
 {
+	eat_spaces(*parser.remainer);
 	return eat_char(*parser.remainer, #char "[");
 }
 
 json_parse_array_end :: (parser: *JSON_Parser) -> success: bool
 {
+	eat_spaces(*parser.remainer);
 	return eat_char(*parser.remainer, #char "]");
 }
 
@@ -496,13 +494,15 @@ json_parse_object_T :: (parser: *JSON_Parser, out_data: *$T) -> bool
 	return parser.parse_object(parser, type_info(T), out_data);
 }
 
-json_parse_value_separator :: (in_text: *string) -> success: bool
+json_parse_separator :: (in_text: *string) -> success: bool
 {
+	eat_spaces(in_text);
 	return eat_char(in_text, #char ",");
 }
 
-json_parse_keyvalue_separator :: (in_text: *string) -> success: bool
+json_parse_kv_separator :: (in_text: *string) -> success: bool
 {
+	eat_spaces(in_text);
 	return eat_char(in_text, #char ":");
 }
 
@@ -546,23 +546,4 @@ json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, l
 {
 	array_add(*messages, Generic_Parser_Message.{ .ERROR, tprint(string_format, ..args), remainer.data, location } );
 	return false;
-}
-
-json_make_report :: (parser : *JSON_Parser = null) -> Generic_Parser_Report
-{
-	push_allocator(temp);
-
-	// make report from state
-	report: Generic_Parser_Report;
-	report.input_text = parser.input_text;
-
-	for message : parser.messages
-	{
-		if message.type == .ERROR
-		{
-			array_add(*report.errors, copy_message(message));
-		}
-	}
-
-	return report;
 }

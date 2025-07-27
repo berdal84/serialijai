@@ -1,16 +1,16 @@
 
-eat_spaces :: ( in_text: *string, spaces := " \n\t" )
+eat_spaces :: ( text: *string, spaces := " \n\t" ) -> s64
 {
-	while in_text.count && is_any(in_text.*[0], spaces)
+	begin := text.data;
+	while text.count && is_any(text.*[0], spaces)
 	{
-		advance(in_text);
+		advance(text);
 	}
+	return text.data - begin;
 }
 
 eat_char:: (in_text: *string, char: u8) -> bool
 {
-	eat_spaces(in_text);
-
 	if in_text.data[0] != char
 	{
 		return false;
@@ -76,8 +76,35 @@ initialize :: (data: *void, data_ti: *Type_Info)
     }
 }
 
+parse :: (using parser: *$Parser_T, out_data: *$T, input: string) -> success: bool
+{
+	return parse(parser, type_info(T), out_data, input);
+}
 
-generic_parse :: (using parser: *$Parser_Type, ti: *Type_Info, out_data: *void, in_text: string) -> bool
+parse_file :: (using parser: *$Parser_T, out_data: *$T, file_path: string) -> success: bool
+{
+	content, file_read := read_entire_file(file_path, log_errors=true);
+	defer free(content);
+	if !file_read
+	{
+		print("Unable to file '%'\n", file_path);
+		return false;
+	}
+	return parse(parser, type_info(T), out_data, content);
+}
+
+serialize :: (using serializer: *$Serializer_T, data: *$T) -> json: string
+{
+	input_ti := type_info(T);
+	return serialize(serializer, data, input_ti);
+}
+
+serialize :: (using serializer: *$Serializer_T, data: *void, input_ti: *Type_Info) -> json: string
+{
+	return serialize(serializer, data, input_ti);
+}
+
+generic_parse :: (using parser: *$Parser_T, ti: *Type_Info, out_data: *void, in_text: string) -> bool
 {
 	if !parse_begin(parser, in_text)
 		return false;
@@ -130,17 +157,17 @@ generic_parse_object :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *v
 
 	if tis.name == "Table"
 	{
-		return parse_object_begin(parser)
+		return parse_object_begin(parser, tis, out_data)
 	    && parse_table_body(parser, tis, out_data)
-	    && parse_object_end(parser);
+	    && parse_object_end(parser, tis, out_data);
 	}
 
-	return parse_object_begin(parser)
+	return parse_object_begin(parser, tis, out_data)
 	    && parse_object_body(parser, tis, out_data)
-	    && parse_object_end(parser);
+	    && parse_object_end(parser, tis, out_data);
 }
 
-generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void) -> bool
+generic_parse_keyvalues :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void) -> bool
 {
 	#if DEBUG print("generic_parse_object_body %...\n", tis.name);
 	defer #if DEBUG print("generic_parse_object_body % (end)\n", tis.name);
@@ -153,19 +180,16 @@ generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_dat
 	key_index := 0;
 	while ( remainer.count )
 	{
-		ate_separator := key_index && parse_value_separator(*remainer);
-
 		key: string;
-		if !parse_string(*key, *remainer,, allocator=temp) // we won't store the key.
+
+		if !parse_key(*key, *remainer,, allocator=temp)
 		{
-			if ate_separator
-				return error(parser, "Expecting a separator");
 			break;
 		}
 
-		if !parse_keyvalue_separator(*remainer)
+		if !parse_kv_separator(*remainer)
 		{
-			return false;
+			return error(parser, "Expecting a keyvalue separator");
 		}
 
 		member, offset_in_bytes := get_field(tis, key);
@@ -186,6 +210,12 @@ generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_dat
 		if !parse_value(parser, member.type, member_data)
 		{
 			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
+		}
+
+		if !parse_separator(*remainer)
+		{
+			print("Unable to find a separator after keyvalue \"%\" (key_index: %, remainer: ...%\n", key, key_index, remainer);
+			break;
 		}
 
 		key_index += 1;
@@ -244,7 +274,7 @@ generic_parse_array_body_T :: (
 			}
 		}
 
-		ate_comma := next_id && parse_value_separator(*remainer);
+		ate_comma := next_id && parse_separator(*remainer);
 		
 		if next_id && !ate_comma
 		{
@@ -374,7 +404,7 @@ generic_parse_table_body_T :: (using parser: *$Parser_Type, out_table: *$T/Table
 	i := 0;
 	while ( remainer.count )
 	{
-		ate_comma := i && parse_value_separator(*remainer);
+		ate_comma := i && parse_separator(*remainer);
 
 		key: T.Key_Type;
 		assert(T.Key_Type == string);
@@ -385,7 +415,7 @@ generic_parse_table_body_T :: (using parser: *$Parser_Type, out_table: *$T/Table
 			break;
 		}
 
-		if !parse_keyvalue_separator(*remainer)
+		if !parse_kv_separator(*remainer)
 		{
 			return false;
 		}
@@ -555,6 +585,8 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 	#if DEBUG print("generic_parse_string ...\n");
 	#if DEBUG defer print("generic_parse_string (end)\n");
 
+	eat_spaces(in_text);
+
 	if !eat_char(in_text, #char "\"")
 	{
 		return false;
@@ -593,8 +625,7 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 	return true;
 }
 
-// Parse a word known at compile-time
-generic_parse_word :: (in_text: *string, $expected_word : string) -> success: bool
+generic_parse_word :: (in_text: *string, expected_word : string) -> success: bool
 {
 	eat_spaces(in_text); // ensure in_text starts with a non space char
 	

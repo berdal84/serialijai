@@ -4,46 +4,143 @@ DEBUG_MEMORY             :: true;  // check for mem leaks (Basic module)
 DEBUG_SERIALISER         :: true; // enable detailed messages in serializer
 ASSERT_WHEN_EXPECT_FAILS :: false; // fail as soon as an expectation failed
 
-g_parser : JSON_Parser;
+g_json_parser : JSON_Parser;
+g_xml_parser : XML_Parser;
 
 main :: ()
 {
+	//
+	// Prepare tests
+	//
 	test_begin();
 
-	{
-		json_init(*g_parser);
+	//
+	// JSON tests
+	//
+	test_json_parse__JSON_Any();
+	test_json_parse__primitive();
+	test_json_parse__array();
+	test_json_parse__struct();
+	test_json_parse__Table();
+	test_json_parse__customization();
+	test_json_parse__file();
 
-		test_JSON_parse__JSON_Any();
-		test_JSON_parse__primitive();
-		test_JSON_parse__array();
-		test_JSON_parse__struct();
-		test_JSON_parse__Table();
-		test_JSON_parse__customization();
-		test_JSON_parse__file();
+	//
+	// XML tests
+	//
+	test_xml_parse();
 
-		json_release(*g_parser);
-
-		#if DEBUG_MEMORY
-	    {
-	        report: = make_leak_report();
-	        if report.sorted_summaries.count
-	        {
-	            log_leak_report(report);
-	            assert(false, "make_leak_report() FAILED\n");
-	        }
-	        else
-	        {
-	            print("make_leak_report() OK\n");
-	        }
-	    }
-	}
-
-	test_end();
+	//
+	// End tests
+	//
+	test_end(DEBUG_MEMORY);
 }
 
 #scope_file
 
-test_JSON_parse__JSON_Any :: ()
+//------------------------------------------------------------------------------
+//
+// XML tests
+//
+//------------------------------------------------------------------------------
+
+test_xml_parse :: ()
+{
+	TOTO :: struct{};
+	TATA :: struct{};
+
+	print_title("XML_Elem");
+	{
+		obj : TOTO;
+		ok := parse(*g_xml_parser, *obj, "<TOTO></TOTO>");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+		
+		expect(ok);
+	}
+
+	{
+		obj : TOTO;
+		ok := parse(*g_xml_parser, *obj, "<TOTO/>");
+		expect(ok);
+	}
+
+	{
+		obj : TATA;
+		ok := parse(*g_xml_parser, *obj, "<TOTO></TOTO>");
+		expect(!ok); // TOTO != TATA
+	}
+
+	{
+		Language :: struct
+		{
+			name : string;
+		};
+		language : Language;
+		ok := parse(*g_xml_parser, *language, "<Language name=\"Jai\" />");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+
+		expect(ok);
+		expect(language.name == "Jai");
+	}
+
+	{
+		Item :: struct
+		{
+			label       : string;
+			description : string;
+		};
+		item : Item;
+		ok := parse(*g_xml_parser, *item, "<Item label=\"Desk\" description=\"Large wood desk\" ></Item>");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+
+		expect(ok);
+		expect(item.label       == "Desk");
+		expect(item.description == "Large wood desk");
+	}
+
+	{
+		Person :: struct
+		{
+			name : string;
+			age  : s32;
+		};
+		person : Person;
+		ok := parse(*g_xml_parser, *person, "<Person age=40 name=\"Bérenger\" ></Person>");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+
+		expect(ok);
+		expect(person.name == "Bérenger");
+		expect(person.age  == 40);
+	}
+}
+
+//------------------------------------------------------------------------------
+//
+// JSON tests
+//
+//------------------------------------------------------------------------------
+
+test_json_parse__JSON_Any :: ()
 {
 	print_title("JSON_Any");
 
@@ -52,9 +149,9 @@ test_JSON_parse__JSON_Any :: ()
 
 	{
 		value : JSON_Any;
-		ok := parse(*g_parser, *value, "null");
+		ok := parse(*g_json_parser, *value, "null");
 
-		print_report( json_make_report(*g_parser) );
+		print_report( make_report(*g_json_parser) );
 		
 		expect(ok);
 		expect(value.type == .NULL);
@@ -62,9 +159,9 @@ test_JSON_parse__JSON_Any :: ()
 
 	{
 		value : JSON_Any;
-		ok := parse(*g_parser, *value, "true");
+		ok := parse(*g_json_parser, *value, "true");
 
-		print_report( json_make_report(*g_parser) );
+		print_report( make_report(*g_json_parser) );
 		
 		expect(ok);
 		expect(value.type == .BOOLEAN);
@@ -73,9 +170,9 @@ test_JSON_parse__JSON_Any :: ()
 
 	{
 		value : JSON_Any;
-		ok := parse(*g_parser, *value, "42.0");
+		ok := parse(*g_json_parser, *value, "42.0");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -88,9 +185,9 @@ test_JSON_parse__JSON_Any :: ()
 
 	{
 		value : JSON_Any;
-		ok := parse(*g_parser, *value, "\"Hello, world!\"");
+		ok := parse(*g_json_parser, *value, "\"Hello, world!\"");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -106,18 +203,18 @@ test_JSON_parse__JSON_Any :: ()
 
 	{
 		value : JSON_Any;
-		ok := parse(*g_parser, *value, "wrong");
+		ok := parse(*g_json_parser, *value, "wrong");
 
-		print_report( json_make_report(*g_parser) );
+		print_report( make_report(*g_json_parser) );
 		
 		expect(!ok);
 	}
 
 	{
 		value : JSON_Any;
-		ok := parse(*g_parser, *value, "[1,2,3]");
+		ok := parse(*g_json_parser, *value, "[1,2,3]");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -135,9 +232,9 @@ test_JSON_parse__JSON_Any :: ()
 
 	{
 		value : JSON_Any;
-		ok := parse(*g_parser, *value, "[ [1], [1,2], [1,2,3] ]");
+		ok := parse(*g_json_parser, *value, "[ [1], [1,2], [1,2,3] ]");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -163,9 +260,9 @@ test_JSON_parse__JSON_Any :: ()
 
 	{
 		obj : JSON_Any;
-		ok := parse(*g_parser, *obj, "{ \"b\": true, \"str\": \"my_string\" }");
+		ok := parse(*g_json_parser, *obj, "{ \"b\": true, \"str\": \"my_string\" }");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -180,15 +277,15 @@ test_JSON_parse__JSON_Any :: ()
 	}
 }
 
-test_JSON_parse__primitive :: ()
+test_json_parse__primitive :: ()
 {
 	print_title("boolean");
 	
 	{
 		value : bool = false;
-		ok := parse(*g_parser, *value, "true");
+		ok := parse(*g_json_parser, *value, "true");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -200,9 +297,9 @@ test_JSON_parse__primitive :: ()
 
 	{
 		value: bool = true;
-		ok := parse(*g_parser, *value, "false");
+		ok := parse(*g_json_parser, *value, "false");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -214,9 +311,9 @@ test_JSON_parse__primitive :: ()
 	
 	{
 		value: bool;
-		ok := parse(*g_parser, *value, "tRuE");
+		ok := parse(*g_json_parser, *value, "tRuE");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -228,9 +325,9 @@ test_JSON_parse__primitive :: ()
 	{
 		value : bool = true;
 
-		ok := parse(*g_parser, *value, "f@lse");
+		ok := parse(*g_json_parser, *value, "f@lse");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -243,9 +340,9 @@ test_JSON_parse__primitive :: ()
 
 	{
 		value: string;
-		ok := parse(*g_parser, *value, "\"Ada Lovelace\"");
+		ok := parse(*g_json_parser, *value, "\"Ada Lovelace\"");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -262,9 +359,9 @@ test_JSON_parse__primitive :: ()
 
 	{
 		value: float;
-		ok := parse(*g_parser, *value, "0.125");
+		ok := parse(*g_json_parser, *value, "0.125");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -276,9 +373,9 @@ test_JSON_parse__primitive :: ()
 
 	{
 		value: float;
-		ok := parse(*g_parser, *value, "42.125");
+		ok := parse(*g_json_parser, *value, "42.125");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -290,9 +387,9 @@ test_JSON_parse__primitive :: ()
 
 	{
 		value: float;
-		ok := parse(*g_parser, *value, "1");
+		ok := parse(*g_json_parser, *value, "1");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -305,9 +402,9 @@ test_JSON_parse__primitive :: ()
 	{
 		value: float;
 
-		ok := parse(*g_parser, *value, "-1.2");
+		ok := parse(*g_json_parser, *value, "-1.2");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -318,15 +415,15 @@ test_JSON_parse__primitive :: ()
 	}
 }
 
-test_JSON_parse__array :: ()
+test_json_parse__array :: ()
 {
 	print_title("array (FIXED)");
 
 	{
 		array: [1]s32;
-		ok := parse(*g_parser, *array, "[42]");
+		ok := parse(*g_json_parser, *array, "[42]");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -338,9 +435,9 @@ test_JSON_parse__array :: ()
 
 	{
 		array: [2]s32;
-		ok := parse(*g_parser, *array, "[ 1, 2]");
+		ok := parse(*g_json_parser, *array, "[ 1, 2]");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -354,9 +451,9 @@ test_JSON_parse__array :: ()
 	
 	{
 		array: [4]s32;
-		ok := parse(*g_parser, *array, "[4,3,2,1]");
+		ok := parse(*g_json_parser, *array, "[4,3,2,1]");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -376,9 +473,9 @@ test_JSON_parse__array :: ()
 		array: [..]s32;
 		defer array_free(array);
 
-		ok := parse(*g_parser, *array, "[0,1,2,3]");
+		ok := parse(*g_json_parser, *array, "[0,1,2,3]");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -396,13 +493,13 @@ test_JSON_parse__array :: ()
 
 	{
 		array: []s32 = .[0,0,0];
-		ok := parse(*g_parser, *array, "[1,2,3]");
+		ok := parse(*g_json_parser, *array, "[1,2,3]");
 		expect(!ok);
 	}
 
 }
 
-test_JSON_parse__struct :: ()
+test_json_parse__struct :: ()
 {
 print_title("struct");
 
@@ -431,9 +528,9 @@ END
 		};
 
 		nested_structure: NestedStructure;
-		ok := parse(*g_parser, *nested_structure, json);
+		ok := parse(*g_json_parser, *nested_structure, json);
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -475,9 +572,9 @@ END
 		obj : struct {
 			array: [..]My_Struct;
 		}
-		ok := parse(*g_parser, *obj, json);
+		ok := parse(*g_json_parser, *obj, json);
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -494,7 +591,7 @@ END
 	}
 }
 
-test_JSON_parse__Table :: ()
+test_json_parse__Table :: ()
 {
 	print_title("Table(string, $T)");
 	
@@ -507,9 +604,9 @@ test_JSON_parse__Table :: ()
 
 	{
 		table: Table(string, string);
-		ok := parse(*g_parser, *table, "{}");
+		ok := parse(*g_json_parser, *table, "{}");
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -529,9 +626,9 @@ test_JSON_parse__Table :: ()
 END
 		table : Table(string, string);
 
-		ok := parse(*g_parser, *table, json);
+		ok := parse(*g_json_parser, *table, json);
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -561,9 +658,9 @@ END
 }
 END
 		table : Table(string, float64);
-		ok := parse(*g_parser, *table, json);
+		ok := parse(*g_json_parser, *table, json);
 
-		report := json_make_report(*g_parser);
+		report := make_report(*g_json_parser);
 
 		if report.errors.count {
 			print_report(report);
@@ -586,7 +683,7 @@ END
 	}
 }
 
-test_JSON_parse__customization :: ()
+test_json_parse__customization :: ()
 {
 	print_title("Customization");
 
@@ -611,7 +708,7 @@ test_JSON_parse__customization :: ()
 	{
 		print("First, let's show you that when parsing a table using the generic JSON_Any type:\n");
 		data : JSON_Any;
-		ok := parse(*g_parser, *data, "{ \"item_01\": { \"id\": 42, \"name\": \"Ada\" } }");
+		ok := parse(*g_json_parser, *data, "{ \"item_01\": { \"id\": 42, \"name\": \"Ada\" } }");
 
 		expect(ok);
 
@@ -629,8 +726,8 @@ test_JSON_parse__customization :: ()
 
 		print("This just requires two steps.\nFirst, you initialize json manually.\n");
 		print("Then, you override parse_table_body.\n");
-		parse_table_body_backup := g_parser.parse_table_body;
-		g_parser.parse_table_body = (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success: bool
+		parse_table_body_backup := g_json_parser.parse_table_body;
+		g_json_parser.parse_table_body = (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success: bool
 		{
 			if tis == type_info(MyTable)
 				return  generic_parse_table_body_T(parser, cast(*MyTable)out_data);	
@@ -639,7 +736,7 @@ test_JSON_parse__customization :: ()
 		}
 
 		print("Now you can parse the json string...\n");
-		ok := parse(*g_parser, *my_table, "{ \"item_01\": { \"id\": 42, \"name\": \"Ada\" } }");
+		ok := parse(*g_json_parser, *my_table, "{ \"item_01\": { \"id\": 42, \"name\": \"Ada\" } }");
 
 		expect(ok);
 
@@ -653,17 +750,17 @@ test_JSON_parse__customization :: ()
 		release_my_table(*my_table);
 
 		// Restore the default function so other tests do not get impacted
-		g_parser.parse_table_body = parse_table_body_backup;
+		g_json_parser.parse_table_body = parse_table_body_backup;
 	}
 }
 
-test_JSON_parse__file :: ()
+test_json_parse__file :: ()
 {
 	print_title("file");
 
 	{
 		json: JSON_Any;
-		ok := parse_file(*g_parser, *json, "tests/array.json");
+		ok := parse_file(*g_json_parser, *json, "tests/array.json");
 		expect(ok);
 		expect(json.array.count != 0);
 
@@ -693,20 +790,24 @@ g_expect_failed_count := 0;
 
 test_begin :: ()
 {
-	g_expect_count = 0;
+	g_expect_count        = 0;
 	g_expect_failed_count = 0;
+
+	json_init(*g_json_parser);
+	xml_init(*g_xml_parser);
 
 	print_title("Test Begin");
 }
 
-test_end :: ()
+test_end :: ($debug_memory : bool = false)
 {
-	print("Test END\n");
+	json_release(*g_json_parser);
+	xml_release(*g_xml_parser);
 
 	success := g_expect_failed_count == 0;
 
 	print("------------------------------------------------------------------\n\n");
-	defer print("\n------------------------------------------------------------------\n");
+	
 	if !success
 	{
 		assert(false, ">>> %/% expectation(s) failed! See errors above...\n\n", g_expect_failed_count, g_expect_count);
@@ -717,7 +818,25 @@ test_end :: ()
 		print(">>> %/% tests passed!\n", g_expect_count-g_expect_failed_count, g_expect_count);
 		reset_console_color();
 	}
-	
+
+	#if debug_memory
+    {
+    	print("------------------------------------------------------------------\n\n");
+        report: = make_leak_report();
+        if report.sorted_summaries.count
+        {
+            log_leak_report(report);
+            assert(false, "make_leak_report() FAILED\n");
+        }
+        else
+        {
+            print("make_leak_report() OK\n");
+        }
+    }
+
+	print("\n------------------------------------------------------------------\n");
+
+	print("Test END\n");	
 }
 
 print_title :: (title: string)
