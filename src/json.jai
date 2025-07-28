@@ -454,11 +454,11 @@ json_parse_integer     :: generic_parse_integer;
 json_parse_float       :: generic_parse_float;
 json_parse_string      :: generic_parse_string;
 json_parse_bool        :: generic_parse_bool;
-json_parse_null        :: (in_text: *string) -> bool                                                      { return generic_parse_word(in_text, "null"); }
+json_parse_null        :: (in_text: *string) -> bool                                                      { return generic_parse_exact_word(in_text, "null"); }
 json_parse             :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void, text: string) -> bool { return generic_parse(parser, ti, data, text); } // out_data must be initialized
 json_parse_value       :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void) -> bool               { return generic_parse_value(parser, ti, data); } // out_data must be  
 json_parse_object      :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object(parser, tis, data); }
-json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_keyvalues(parser, tis, data); };
+json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object_body(parser, tis, data); };
 json_parse_table       :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table(p, tis, out_data); };
 json_parse_table_body  :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table_body(p, tis, out_data); };
 json_parse_array       :: (p: *JSON_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array(p, tia, out_data); };

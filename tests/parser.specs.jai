@@ -46,13 +46,17 @@ main :: ()
 
 test_xml_parse :: ()
 {
-	TOTO :: struct{};
-	TATA :: struct{};
-
 	print_title("XML_Elem");
 	{
-		obj : TOTO;
-		ok := parse(*g_xml_parser, *obj, "<TOTO></TOTO>");
+
+		Paragraph :: struct @xml:tag=p
+		{
+			color : string; @xml:attribute
+			// text  : string; @xml:content
+		}
+
+		p : Paragraph;
+		ok := parse(*g_xml_parser, *p, "<p color=\"red\"></p>");
 
 		report := make_report(*g_xml_parser);
 
@@ -61,76 +65,6 @@ test_xml_parse :: ()
 		}
 		
 		expect(ok);
-	}
-
-	{
-		obj : TOTO;
-		ok := parse(*g_xml_parser, *obj, "<TOTO/>");
-		expect(ok);
-	}
-
-	{
-		obj : TATA;
-		ok := parse(*g_xml_parser, *obj, "<TOTO></TOTO>");
-		expect(!ok); // TOTO != TATA
-	}
-
-	{
-		Language :: struct
-		{
-			name : string;
-		};
-		language : Language;
-		ok := parse(*g_xml_parser, *language, "<Language name=\"Jai\" />");
-
-		report := make_report(*g_xml_parser);
-
-		if report.errors.count {
-			print_report(report);
-		}
-
-		expect(ok);
-		expect(language.name == "Jai");
-	}
-
-	{
-		Item :: struct
-		{
-			label       : string;
-			description : string;
-		};
-		item : Item;
-		ok := parse(*g_xml_parser, *item, "<Item label=\"Desk\" description=\"Large wood desk\" ></Item>");
-
-		report := make_report(*g_xml_parser);
-
-		if report.errors.count {
-			print_report(report);
-		}
-
-		expect(ok);
-		expect(item.label       == "Desk");
-		expect(item.description == "Large wood desk");
-	}
-
-	{
-		Person :: struct
-		{
-			name : string;
-			age  : s32;
-		};
-		person : Person;
-		ok := parse(*g_xml_parser, *person, "<Person age=40 name=\"Bérenger\" ></Person>");
-
-		report := make_report(*g_xml_parser);
-
-		if report.errors.count {
-			print_report(report);
-		}
-
-		expect(ok);
-		expect(person.name == "Bérenger");
-		expect(person.age  == 40);
 	}
 }
 

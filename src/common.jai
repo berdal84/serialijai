@@ -167,14 +167,17 @@ generic_parse_object :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *v
 	    && parse_object_end(parser, tis, out_data);
 }
 
-generic_parse_keyvalues :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void) -> bool
+generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void, $init := true ) -> bool
 {
 	#if DEBUG print("generic_parse_object_body %...\n", tis.name);
 	defer #if DEBUG print("generic_parse_object_body % (end)\n", tis.name);
 
-	if tis.initializer != null
+	#if init
 	{
-		tis.initializer(out_data);
+		if tis.initializer != null
+		{
+			tis.initializer(out_data);
+		}	
 	}
 
 	key_index := 0;
@@ -443,13 +446,13 @@ generic_parse_bool :: (out_data: *bool, in_text: *string) -> success: bool
 	#if DEBUG print("parse_bool ...\n");
 	#if DEBUG defer print("parse_bool (end)\n");
 
-	if generic_parse_word(in_text, "true")
+	if generic_parse_exact_word(in_text, "true")
 	{
 		(cast(*bool)out_data).* = true;
 		return true;
 	}
 
-	if generic_parse_word(in_text, "false")
+	if generic_parse_exact_word(in_text, "false")
 	{
 		(cast(*bool)out_data).* = false;
 		return true;
@@ -625,7 +628,7 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 	return true;
 }
 
-generic_parse_word :: (in_text: *string, expected_word : string) -> success: bool
+generic_parse_exact_word :: (in_text: *string, expected_word : string) -> success: bool
 {
 	eat_spaces(in_text); // ensure in_text starts with a non space char
 	
