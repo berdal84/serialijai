@@ -28,43 +28,48 @@ XML_Elem :: struct
 
 XML_Parser :: struct
 {	
+	#as using _parser: Parser;
+
 	// data
 
 	verbose    := false;
 	input_text : string; // owned
 	remainer   : string; // view over input_text's data
-	messages   : [..]Generic_Parser_Message;
+	messages   : [..]Parser_Message;
 
-	// overridable procedures:
+	// non-pure
+	
+	get_remainer             = (parser: *Parser) -> *string { return *(cast(*XML_Parser)parser).remainer; };
+	reset                    = (parser: *Parser, input: string) -> bool { return xml_reset(xx parser, input); };
+	parse_begin              = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return xml_parse_begin(xx parser, ti, data); };
+	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return xml_parse_end(xx parser, ti, data); };
+	parse_value              = generic_parse_value;
+    parse_object             = generic_parse_object;
+	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_begin(xx parser, tis, data); };
+	parse_object_body        = generic_parse_object_body;
+	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_end(xx parser, tis, data); };	
+	parse_table_body         = generic_parse_table_body;
+    parse_array              = generic_parse_array;
+	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_begin(xx parser, tia, data); }
+	parse_array_body         = generic_parse_array_body;
+	parse_array_end          = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_end(xx parser, tia, data); }
+	error                    = (using parser: *Parser, string_format: string, args: ..Any) -> bool { return xml_error(xx parser, string_format, ..args); };
+    
+    // pure
 
-	parse                    := xml_parse;
-	parse_begin              := xml_parse_begin;
-	parse_end                := xml_parse_end;
-    parse_key                := xml_parse_key;
-	parse_value              := xml_parse_value;
-      
-	parse_object             := xml_parse_object;
-	parse_object_begin       := xml_parse_object_begin;
-	parse_object_body        := xml_parse_object_body;
-	parse_object_end         := xml_parse_object_end;	
-    parse_separator          := xml_parse_separator;
-    parse_kv_separator       := xml_parse_kv_separator;
-    parse_attr_value         := xml_parse_attr_value;
-	parse_table_body         := xml_parse_table_body;
-      
-	parse_array              := xml_parse_array;
-	parse_array_begin        := xml_parse_array_begin;
-	parse_array_body         := xml_parse_array_body;
-	parse_array_end          := xml_parse_array_end;
-      
-	parse_integer            := xml_parse_integer;  
-	parse_float              := xml_parse_float;    
-	parse_string             := xml_parse_string;   
-	parse_bool               := xml_parse_bool;     
-	parse_null               := xml_parse_null;     
-      
+    parse_key                = generic_parse_string; 
+	parse_separator          = xml_parse_separator;
+	parse_kv_separator       = xml_parse_kv_separator;
+    parse_integer            = generic_parse_integer;
+	parse_float              = generic_parse_float;    
+	parse_string             = generic_parse_string;   
+	parse_bool               = generic_parse_bool;     
+	parse_null               = generic_parse_null;     
+}
 
-	error                    := xml_error;
+xml_get_remainer :: (parser: *XML_Parser) -> *string
+{
+	return *parser.remainer;
 }
 
 xml_init :: (using parser: *XML_Parser)
@@ -73,7 +78,7 @@ xml_init :: (using parser: *XML_Parser)
 	remainer   = input_text;
 }
 
-xml_reset :: (using parser : *XML_Parser, source: string)
+xml_reset :: (using parser : *XML_Parser, source: string) -> bool
 {	
 	if input_text.count != 0
 	{
@@ -85,6 +90,8 @@ xml_reset :: (using parser : *XML_Parser, source: string)
 	
 	// note: array_reset free memory, but we don't want that here. Let's save an alloc.
 	messages.count = 0; // message's strings are allocated using temp
+
+	return true;
 }
 
 xml_release :: (parser: *XML_Parser)
@@ -94,21 +101,6 @@ xml_release :: (parser: *XML_Parser)
 	// note: array_reset free memory (which is something that might change, table_reset does not for example)
 	array_reset(*parser.messages); // message's strings are allocated using temp
 }
-
-// For now, there is nothing specific about JSON for those procedures,
-// I share them with other parsers.
-xml_parse_integer     :: generic_parse_integer;
-xml_parse_float       :: generic_parse_float;
-xml_parse_string      :: generic_parse_string;
-xml_parse_bool        :: generic_parse_bool;
-xml_parse_null        :: (in_text: *string) -> bool                                                     { return generic_parse_exact_word(in_text, "null"); }
-xml_parse             :: (using parser: *XML_Parser, ti: *Type_Info, data: *void, text: string) -> bool { return generic_parse(parser, ti, data, text); } // out_data must be initialized
-xml_parse_value       :: (using parser: *XML_Parser, ti: *Type_Info, data: *void) -> bool               { return generic_parse_value(parser, ti, data); } // out_data must be  
-xml_parse_object      :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object(parser, tis, data); }
-xml_parse_table       :: (p: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table(p, tis, out_data); };
-xml_parse_table_body  :: (p: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table_body(p, tis, out_data); };
-xml_parse_array       :: (p: *XML_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array(p, tia, out_data); };
-xml_parse_array_body  :: (p: *XML_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array_body(p, tia, out_data); };
 
 xml_parse_separator :: (text: *string) -> bool
 {
@@ -194,7 +186,7 @@ xml_parse_attr_value :: (using parser: *XML_Parser, ti: *Type_Info, out_data: *v
 	return error(parser, "Unhandled attribute type %\n", ti.type);	
 }
 
-xml_parse_attrs :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void ) -> bool
+xml_parse_attrs :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void ) -> bool
 {
 	#if DEBUG print("xml_parse_attrs %...\n", tis.name);
 	defer #if DEBUG print("xml_parse_attrs % (end)\n", tis.name);
@@ -229,7 +221,7 @@ xml_parse_attrs :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void )
 
 		initialize(member_data, member.type);
 
-		if !parse_attr_value(parser, member.type, member_data)
+		if !parse_value(parser, member.type, member_data)
 		{
 			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
 		}
@@ -270,7 +262,7 @@ xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, ou
 	defer print("xml_parse_object_begin tag=% DONE\n", expected_tag);	
 	
 	if !xml_parse_tag_open(expected_tag, *remainer)
-		return error(parser, "Unable to parse <%\n", expected_tag);
+		return error(xx parser, "Unable to parse <%\n", expected_tag);
 
 	initialize(out_data, tis);
 
@@ -409,13 +401,13 @@ xml_parse_object_end :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_
 }
 
 
-xml_parse_array_begin :: (parser: *XML_Parser) -> success: bool
+xml_parse_array_begin :: (parser: *XML_Parser, tia: *Type_Info_Array, data: *void) -> success: bool
 {
 	assert(false, "not implemented yet"); // parse "<array>"
 	return false;
 }
 
-xml_parse_array_end :: (parser: *XML_Parser) -> success: bool
+xml_parse_array_end :: (parser: *XML_Parser, tia: *Type_Info_Array, data: *void) -> success: bool
 {
 	assert(false, "not implemented yet"); // parse "</array>"
 	return false;
@@ -426,28 +418,26 @@ xml_parse_object_T :: (parser: *XML_Parser, out_data: *$T) -> bool
 	return parse_object(parser, type_info(T), out_data);
 }
 
-xml_parse_begin :: (using parser : *XML_Parser, source: string) -> success: bool
+xml_parse_begin :: (using parser : *XML_Parser, ti: *Type_Info, data: *void) -> success: bool
 {
-	xml_reset(parser, source);
-
 	if parser.verbose
 	{
 		print("______________________________________________________________\n");
 		print("\n");
-		print(" xml_parse_begin() - Parsing xml: '%'\n", source);
+		print(" xml_parse_begin() - Parsing xml: '%'\n", input_text);
 		print("\n");
 	}
 
 	return true; // no reason to fail for now...
 }
 
-xml_parse_end :: (using parser: *XML_Parser) -> success: bool
+xml_parse_end :: (using parser: *XML_Parser, ti: *Type_Info, data: *void) -> success: bool
 {
 	eat_spaces(*remainer);
 
 	if remainer.count
 	{
-		return error(parser, "Could not parse further");
+		return error(xx parser, "Could not parse further");
 	}
 	
 	if verbose print("xml_parse_end()\n");
@@ -457,11 +447,11 @@ xml_parse_end :: (using parser: *XML_Parser) -> success: bool
 
 xml_error :: (using parser: *XML_Parser, string_format: string, args: ..Any, location := #caller_location) -> bool
 {
-	array_add(*messages, Generic_Parser_Message.{ .ERROR, tprint(string_format, ..args), remainer.data, location } );
+	array_add(*messages, Parser_Message.{ .ERROR, tprint(string_format, ..args), remainer.data, location } );
 	return false;
 }
 
-xml_make_report :: (parser : *XML_Parser = null) -> Generic_Parser_Report
+xml_make_report :: (parser : *XML_Parser = null) -> Parser_Report
 {
 	push_allocator(temp);
 
@@ -480,12 +470,12 @@ xml_make_report :: (parser : *XML_Parser = null) -> Generic_Parser_Report
 	return report;
 }
 
-make_report :: (parser : *XML_Parser) -> Generic_Parser_Report
+make_report :: (parser : *XML_Parser) -> Parser_Report
 {
 	push_allocator(temp);
 
 	// make report from state
-	report: Generic_Parser_Report;
+	report: Parser_Report;
 	report.input_text = parser.input_text;
 
 	for message : parser.messages

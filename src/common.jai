@@ -76,12 +76,45 @@ initialize :: (data: *void, data_ti: *Type_Info)
     }
 }
 
-parse :: (using parser: *$Parser_T, out_data: *$T, input: string) -> success: bool
-{
-	return parse(parser, type_info(T), out_data, input);
+Parser :: struct
+{	
+
+	// procedures using Parser's state
+
+	get_remainer       : #type (parser: *Parser) -> *string;
+	reset              : #type (parser: *Parser, input: string) -> bool;
+	parse_value        : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
+	parse_begin        : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
+    parse_end          : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
+	parse_object       : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
+    parse_object_begin : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
+    parse_object_body  : #type (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool;
+    parse_object_end   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
+	parse_table_body   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;      
+	parse_array        : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
+	parse_array_begin  : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
+	parse_array_body   : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
+	parse_array_end    : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;   
+	error              : #type (parser: *Parser, format_string: string, args: ..Any) -> bool;
+
+	// pure  procedures
+
+	parse_key          : #type (out_data: *string, in_text: *string) -> bool;
+    parse_separator    : #type (in_text: *string) -> bool;
+	parse_kv_separator : #type (in_text: *string) -> bool;
+	parse_integer      : #type (info_integer: *Type_Info_Integer, out_data: *void, in_text: *string) -> bool;
+	parse_float        : #type (info_float: *Type_Info_Float, out_data: *void, in_text: *string) -> bool;   
+	parse_string       : #type (out_data: *string, in_text: *string) -> bool;   
+	parse_bool         : #type (out_data: *bool, in_text: *string) -> bool ;     
+	parse_null         : #type (in_text: *string) -> bool;  
 }
 
-parse_file :: (using parser: *$Parser_T, out_data: *$T, file_path: string) -> success: bool
+parse :: (using parser: *Parser, out_data: *$T, input: string) -> success: bool
+{
+	return generic_parse(parser, type_info(T), out_data, input);
+}
+
+parse_file :: (using parser: *Parser, out_data: *$T, file_path: string) -> success: bool
 {
 	content, file_read := read_entire_file(file_path, log_errors=true);
 	defer free(content);
@@ -90,7 +123,7 @@ parse_file :: (using parser: *$Parser_T, out_data: *$T, file_path: string) -> su
 		print("Unable to file '%'\n", file_path);
 		return false;
 	}
-	return parse(parser, type_info(T), out_data, content);
+	return generic_parse(parser, type_info(T), out_data, content);
 }
 
 serialize :: (using serializer: *$Serializer_T, data: *$T) -> json: string
@@ -104,30 +137,32 @@ serialize :: (using serializer: *$Serializer_T, data: *void, input_ti: *Type_Inf
 	return serialize(serializer, data, input_ti);
 }
 
-generic_parse :: (using parser: *$Parser_T, ti: *Type_Info, out_data: *void, in_text: string) -> bool
+generic_parse :: (using parser: *Parser, ti: *Type_Info, out_data: *void, input: string) -> bool
 {
-	if !parse_begin(parser, in_text)
+	if !reset(parser, input)
+		return false;
+	if !parse_begin(parser, ti, out_data)
 		return false;
 	if !parse_value(parser, ti, out_data)
 		return false;
-	return parse_end(parser);
+	return parse_end(parser, ti, out_data);
 }
 
-generic_parse_value :: (using parser: *$Parser_Type, info: *Type_Info, out_data: *void) -> success: bool
+generic_parse_value :: (using parser: *Parser, info: *Type_Info, out_data: *void) -> success: bool
 {
-	assert( remainer.count > 0 );
-	
 	#if DEBUG {
 		print("generic_parse_value (type: %) ...\n", info.type);
 		defer print("generic_parse_value (type: %) DONE\n", info.type);
 	}
 
+	remainer := get_remainer(parser);
+
 	if info.type == {
 	    
-	    case .INTEGER; return parse_integer(cast(*Type_Info_Integer)info, out_data, *remainer);
-	    case .FLOAT;   return parse_float(cast(*Type_Info_Float)info, out_data, *remainer);
-	    case .BOOL;    return parse_bool(cast(*bool)out_data, *remainer);
-	    case .STRING;  return parse_string(cast(*string)out_data, *remainer);
+	    case .INTEGER; return parse_integer(cast(*Type_Info_Integer)info, out_data, remainer);
+	    case .FLOAT;   return parse_float(cast(*Type_Info_Float)info, out_data, remainer);
+	    case .BOOL;    return parse_bool(cast(*bool)out_data, remainer);
+	    case .STRING;  return parse_string(cast(*string)out_data, remainer );
 	    case .ARRAY;   return parse_array(parser, cast(*Type_Info_Array)info, out_data);
 	    case .STRUCT;  return parse_object(parser, cast(*Type_Info_Struct)info, out_data);
 
@@ -147,7 +182,7 @@ generic_parse_value :: (using parser: *$Parser_Type, info: *Type_Info, out_data:
 	}
 }
 
-generic_parse_object :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void) -> bool
+generic_parse_object :: (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
 {
 	if tis == type_info(JSON_Any)
 	{
@@ -167,12 +202,12 @@ generic_parse_object :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *v
 	    && parse_object_end(parser, tis, out_data);
 }
 
-generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_data: *void, $init := true ) -> bool
+generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool
 {
 	#if DEBUG print("generic_parse_object_body %...\n", tis.name);
 	defer #if DEBUG print("generic_parse_object_body % (end)\n", tis.name);
 
-	#if init
+	if initialize_data
 	{
 		if tis.initializer != null
 		{
@@ -181,16 +216,17 @@ generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_dat
 	}
 
 	key_index := 0;
+	remainer := get_remainer(parser);
 	while ( remainer.count )
 	{
 		key: string;
 
-		if !parse_key(*key, *remainer,, allocator=temp)
+		if !parse_key(*key, remainer,, allocator=temp)
 		{
 			break;
 		}
 
-		if !parse_kv_separator(*remainer)
+		if !parse_kv_separator(remainer)
 		{
 			return error(parser, "Expecting a keyvalue separator");
 		}
@@ -215,7 +251,7 @@ generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_dat
 			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
 		}
 
-		if !parse_separator(*remainer)
+		if !parse_separator(remainer)
 		{
 			print("Unable to find a separator after keyvalue \"%\" (key_index: %, remainer: ...%\n", key, key_index, remainer);
 			break;
@@ -227,24 +263,24 @@ generic_parse_object_body :: (using parser: *$T, tis: *Type_Info_Struct, out_dat
 	return true;
 }
 
-generic_parse_array :: (using parser: *$T, tia: *Type_Info_Array, out_data: *void) -> bool
+generic_parse_array :: (using parser: *Parser, tia: *Type_Info_Array, out_data: *void) -> bool
 {
-	if !parse_array_begin(parser)
+	if !parse_array_begin(parser, tia, out_data)
 		return false;
 
 	if !parse_array_body(parser, tia, out_data)
 		return false;
 
-	return parse_array_end(parser);
+	return parse_array_end(parser, tia, out_data);
 }
 
-generic_parse_array_T :: (using parser: *$T, out_data: *$Array_T) -> bool
+generic_parse_array_T :: (using parser: *Parser, out_data: *$Array_T) -> bool
 {
 	return generic_parse_array(parser, type_info(Array_T), out_data);
 }
 
 
-generic_parse_array_body :: (using parser: *$Parser_T, info_array: *Type_Info_Array, out_data: *void ) -> bool
+generic_parse_array_body :: (using parser: *Parser, info_array: *Type_Info_Array, out_data: *void ) -> bool
 {
 	if #complete info_array.array_type ==
 	{
@@ -255,7 +291,7 @@ generic_parse_array_body :: (using parser: *$Parser_T, info_array: *Type_Info_Ar
 }
 
 generic_parse_array_body_T :: (
-	using parser: *$Parser_T,
+	using parser: *Parser,
 	out_array:    *void,
 	ti_array:     *Type_Info_Array,		
 	$array_type:  Type_Info_Array.Array_Type
@@ -266,6 +302,7 @@ generic_parse_array_body_T :: (
 
 	assert(array_type != .VIEW, "array_type .VIEW is not supported, please provide a resizable array.");
 
+	remainer := get_remainer(parser);
 	while( remainer.count )
 	{
 		#if array_type == .FIXED
@@ -277,7 +314,7 @@ generic_parse_array_body_T :: (
 			}
 		}
 
-		ate_comma := next_id && parse_separator(*remainer);
+		ate_comma := next_id && parse_separator(remainer);
 		
 		if next_id && !ate_comma
 		{
@@ -321,10 +358,10 @@ generic_parse_array_body_T :: (
 		remainer_backup := remainer;
 		if !parse_value(parser, ti_array.element_type, el_ptr)
 		{
-			remainer = remainer_backup;
+			remainer.* = remainer_backup.*;
 
 			if ate_comma
-				return error(parser, remainer, "Expecting value");
+				return error(parser, remainer.*, "Expecting value");
 			break;
 		}
 
@@ -360,12 +397,12 @@ generic_parse_array_body_T :: (
 	return true;
 }
 
-generic_parse_table_T:: (using parser: *$Parser_Type, out_data: *$T/Table) -> success: bool
+generic_parse_table_T:: (using parser: *Parser, out_data: *$T/Table) -> success: bool
 {
 	return generic_parse_table(parser, type_info(T), out_data);
 }
 
-generic_parse_table:: (using parser: *$Parser_Type, tis:* Type_Info_Struct, out_data: *void) -> success: bool
+generic_parse_table:: (using parser: *Parser, tis:* Type_Info_Struct, out_data: *void) -> success: bool
 {
 	if !parse_object_begin(parser)
 	{
@@ -380,7 +417,7 @@ generic_parse_table:: (using parser: *$Parser_Type, tis:* Type_Info_Struct, out_
 	return parse_object_end(parser);
 }
 
-generic_parse_table_body:: (using parser: *$Parser_Type, info_struct: *Type_Info_Struct, out_data: *void) -> (success: bool)
+generic_parse_table_body:: (using parser: *Parser, info_struct: *Type_Info_Struct, out_data: *void) -> (success: bool)
 {
 	if info_struct == {
 		// some common Table types
@@ -402,23 +439,24 @@ generic_parse_table_body:: (using parser: *$Parser_Type, info_struct: *Type_Info
 	return false;
 }
 
-generic_parse_table_body_T :: (using parser: *$Parser_Type, out_table: *$T/Table) -> success: bool
+generic_parse_table_body_T :: (using parser: *Parser, out_table: *$T/Table) -> success: bool
 {
 	i := 0;
+	remainer := get_remainer(parser);
 	while ( remainer.count )
 	{
-		ate_comma := i && parse_separator(*remainer);
+		ate_comma := i && parse_separator(remainer);
 
 		key: T.Key_Type;
 		assert(T.Key_Type == string);
-		if !parse_string(*key, *remainer)
+		if !parse_string(*key, remainer)
 		{
 			if ate_comma
 				return error(parser, "Expecting a key after comma");				
 			break;
 		}
 
-		if !parse_kv_separator(*remainer)
+		if !parse_kv_separator(remainer)
 		{
 			return false;
 		}
@@ -461,29 +499,31 @@ generic_parse_bool :: (out_data: *bool, in_text: *string) -> success: bool
 	return false;
 }
 
-generic_parse_JSON_Any :: (using parser: *$Parser_Type, out_data: *JSON_Any) -> success: bool
+generic_parse_JSON_Any :: (using parser: *Parser, out_data: *JSON_Any) -> success: bool
 {
 	out_data.* = .{};
 
-	if parse_null(*remainer)
+	remainer := get_remainer(parser);
+
+	if parse_null(remainer)
 	{
 		out_data.type = .NULL;
 		return true;
 	}
 
-	if parse_bool(*out_data.boolean, *remainer)
+	if parse_bool(*out_data.boolean, remainer)
 	{
 		out_data.type = .BOOLEAN;
 		return true;
 	}
 
-	if parse_float(type_info(float64), xx *out_data.number, *remainer)
+	if parse_float(type_info(float64), xx *out_data.number, remainer)
 	{
 		out_data.type = .NUMBER;
 		return true;
 	}
 
-	if parse_string(*out_data.str, *remainer)
+	if parse_string(*out_data.str, remainer)
 	{
 		out_data.type = .STRING;
 		return true;
@@ -628,6 +668,11 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 	return true;
 }
 
+generic_parse_null :: (in_text: *string) -> bool
+{
+	return generic_parse_exact_word(in_text, "null");
+}
+
 generic_parse_exact_word :: (in_text: *string, expected_word : string) -> success: bool
 {
 	eat_spaces(in_text); // ensure in_text starts with a non space char
@@ -665,7 +710,7 @@ generic_serialize_JSON_Any :: (using serializer: *$T, data: *JSON_Any) -> succes
 	return false;
 }
 
-print_report :: (report: Generic_Parser_Report)
+print_report :: (report: Parser_Report)
 {
 	push_allocator(temp);
 
@@ -729,28 +774,28 @@ print_report :: (report: Generic_Parser_Report)
 
 #scope_module
 
-Generic_Parser_Report :: struct
+Parser_Report :: struct
 {
 	input_text : string;      // The input string provided to the JSON_Parser/Serializer
-	errors     : [..]Generic_Parser_Message;
+	errors     : [..]Parser_Message;
 };
 
-Generic_Parser_Message_Type :: enum u8
+Parser_Message_Type :: enum u8
 {
 	MESSAGE :: 0;
 	WARNING :: 1;
 	ERROR   :: 2;
 }
 
-Generic_Parser_Message :: struct
+Parser_Message :: struct
 {
-	type      : Generic_Parser_Message_Type;
+	type      : Parser_Message_Type;
 	text      : string;
 	data_addr : *u8;
 	loc       : Source_Code_Location;
 }
 
-copy_message :: (using message: Generic_Parser_Message) -> Generic_Parser_Message
+copy_message :: (using message: Parser_Message) -> Parser_Message
 {
 	return .{
 		type=type,

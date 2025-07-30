@@ -51,12 +51,12 @@ test_xml_parse :: ()
 
 		Paragraph :: struct @xml:tag=p
 		{
-			color : string; @xml:attribute
-			// text  : string; @xml:content
+			color : string; @xml:attr
+			text: string;
 		}
 
 		p : Paragraph;
-		ok := parse(*g_xml_parser, *p, "<p color=\"red\"></p>");
+		ok := parse(*g_xml_parser, *p, "<p color=\"red\"><text>Hello, World</text></p>");
 
 		report := make_report(*g_xml_parser);
 
@@ -661,7 +661,7 @@ test_json_parse__customization :: ()
 		print("This just requires two steps.\nFirst, you initialize json manually.\n");
 		print("Then, you override parse_table_body.\n");
 		parse_table_body_backup := g_json_parser.parse_table_body;
-		g_json_parser.parse_table_body = (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success: bool
+		g_json_parser.parse_table_body = (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void) -> success: bool
 		{
 			if tis == type_info(MyTable)
 				return  generic_parse_table_body_T(parser, cast(*MyTable)out_data);	

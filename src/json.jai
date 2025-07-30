@@ -361,42 +361,46 @@ json_serialize_formatted_string :: (using serializer: *JSON_Serializer, format_s
 
 JSON_Parser :: struct
 {	
+	#as using _parser: Parser;
+
 	// data
 
 	verbose    := false;
 	input_text : string; // owned, input is always copied when parsing begins
 	remainer   : string;
-	messages   : [..]Generic_Parser_Message;
+	messages   : [..]Parser_Message;
 
-	// overridable procedures:
+	// non-pure
 
-	parse                    := json_parse;
-	parse_begin              := json_parse_begin;
-	parse_end                := json_parse_end;
-    parse_key                := json_parse_key;          
-    parse_separator          := json_parse_separator;
-	parse_kv_separator       := json_parse_kv_separator;
-	parse_value              := json_parse_value;
+	get_remainer             = (parser: *Parser) -> *string { return *(cast(*JSON_Parser)parser).remainer; };
+	reset                    = (parser: *Parser, input: string) -> bool { return json_reset(xx parser, input); };
+	parse_begin              = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_begin(xx parser); };
+	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_end(xx parser); };
+	parse_value              = generic_parse_value;
       
-	parse_object             := json_parse_object;
-	parse_object_begin       := json_parse_object_begin;
-	parse_object_body        := json_parse_object_body;
-	parse_object_end         := json_parse_object_end;	
+	parse_object             = generic_parse_object;
+	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_begin(xx parser, tis, data); };
+	parse_object_body        = generic_parse_object_body;
+	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_end(xx parser, tis, data); };	
 
-	parse_table_body         := json_parse_table_body;
+	parse_table_body         = generic_parse_table_body;
       
-	parse_array              := json_parse_array;
-	parse_array_begin        := json_parse_array_begin;
-	parse_array_body         := json_parse_array_body;
-	parse_array_end          := json_parse_array_end;
+	parse_array              = generic_parse_array;
+	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_begin(xx parser, tia, data); }
+	parse_array_body         = generic_parse_array_body;
+	parse_array_end          = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_end(xx parser, tia, data); }
+	error                    = (parser: *Parser, string_format: string, args: ..Any) -> bool { return json_error(xx parser, string_format, ..args); };
       
-	parse_integer            := json_parse_integer;  
-	parse_float              := json_parse_float;    
-	parse_string             := json_parse_string;   
-	parse_bool               := json_parse_bool;     
-	parse_null               := json_parse_null;     
-	  
-	error                    := json_error;
+    // pure
+
+    parse_key                = generic_parse_string;          
+    parse_separator          = json_parse_separator;
+	parse_kv_separator       = json_parse_kv_separator;
+	parse_integer            = generic_parse_integer;
+	parse_float              = generic_parse_float;    
+	parse_string             = generic_parse_string;   
+	parse_bool               = generic_parse_bool;     
+	parse_null               = generic_parse_null;      
 }
 
 json_init :: (using parser: *JSON_Parser)
@@ -407,7 +411,7 @@ json_init :: (using parser: *JSON_Parser)
 	remainer   = input_text;
 }
 
-json_reset :: (using parser : *JSON_Parser, source: string)
+json_reset :: (using parser : *JSON_Parser, source: string) -> bool
 {	
 	if input_text.count != 0
 	{
@@ -419,6 +423,8 @@ json_reset :: (using parser : *JSON_Parser, source: string)
 	
 	// note: array_reset free memory, but we don't want that here. Let's save an alloc.
 	messages.count = 0; // message's strings are allocated using temp
+
+	return true;
 }
 
 json_release :: (parser: *JSON_Parser)
@@ -429,12 +435,12 @@ json_release :: (parser: *JSON_Parser)
 	array_reset(*parser.messages); // message's strings are allocated using temp
 }
 
-make_report :: (parser : *JSON_Parser) -> Generic_Parser_Report
+make_report :: (parser : *JSON_Parser) -> Parser_Report
 {
 	push_allocator(temp);
 
 	// make report from state
-	report: Generic_Parser_Report;
+	report: Parser_Report;
 	report.input_text = parser.input_text;
 
 	for message : parser.messages
@@ -448,22 +454,10 @@ make_report :: (parser : *JSON_Parser) -> Generic_Parser_Report
 	return report;
 }
 
-// For now, there is nothing specific about JSON for those procedures,
-// I share them with other parsers.
-json_parse_integer     :: generic_parse_integer;
-json_parse_float       :: generic_parse_float;
-json_parse_string      :: generic_parse_string;
-json_parse_bool        :: generic_parse_bool;
-json_parse_null        :: (in_text: *string) -> bool                                                      { return generic_parse_exact_word(in_text, "null"); }
-json_parse             :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void, text: string) -> bool { return generic_parse(parser, ti, data, text); } // out_data must be initialized
-json_parse_value       :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void) -> bool               { return generic_parse_value(parser, ti, data); } // out_data must be  
-json_parse_object      :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object(parser, tis, data); }
-json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool       { return generic_parse_object_body(parser, tis, data); };
-json_parse_table       :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table(p, tis, out_data); };
-json_parse_table_body  :: (p: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool              { return generic_parse_table_body(p, tis, out_data); };
-json_parse_array       :: (p: *JSON_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array(p, tia, out_data); };
-json_parse_array_body  :: (p: *JSON_Parser, tia: *Type_Info_Array, out_data: *void) -> bool               { return generic_parse_array_body(p, tia, out_data); };
-json_parse_key         :: generic_parse_string;
+json_parse_null :: (in_text: *string) -> bool
+{
+ 	return generic_parse_exact_word(in_text, "null");
+}
 
 json_parse_object_begin :: (parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool
 {
@@ -477,13 +471,13 @@ json_parse_object_end :: (parser: *JSON_Parser, tis: *Type_Info_Struct, out_data
 	return eat_char(*parser.remainer, #char "}");
 }
 
-json_parse_array_begin :: (parser: *JSON_Parser) -> success: bool
+json_parse_array_begin :: (parser: *JSON_Parser, tia: *Type_Info_Array, data: *void) -> success: bool
 {
 	eat_spaces(*parser.remainer);
 	return eat_char(*parser.remainer, #char "[");
 }
 
-json_parse_array_end :: (parser: *JSON_Parser) -> success: bool
+json_parse_array_end :: (parser: *JSON_Parser, tia: *Type_Info_Array, data: *void) -> success: bool
 {
 	eat_spaces(*parser.remainer);
 	return eat_char(*parser.remainer, #char "]");
@@ -506,15 +500,13 @@ json_parse_kv_separator :: (in_text: *string) -> success: bool
 	return eat_char(in_text, #char ":");
 }
 
-json_parse_begin :: (using parser : *JSON_Parser, source: string) -> success: bool
+json_parse_begin :: (using parser : *JSON_Parser) -> success: bool
 {
-	json_reset(parser, source);
-
 	if parser.verbose
 	{
 		print("______________________________________________________________\n");
 		print("\n");
-		print(" json_parse_begin() - Parsing json: '%'\n", source);
+		print(" json_parse_begin() - Parsing json: '%'\n", input_text);
 		print("\n");
 	}
 
@@ -542,8 +534,8 @@ json_parse_table_T :: (using parser: *JSON_Parser, out_data: *Table) -> success:
 		&& parse_table_end(parser);
 }
 
-json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, location := #caller_location) -> bool
+json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, location : Source_Code_Location = #caller_location) -> bool
 {
-	array_add(*messages, Generic_Parser_Message.{ .ERROR, tprint(string_format, ..args), remainer.data, location } );
+	array_add(*messages, Parser_Message.{ .ERROR, tprint(string_format, ..args), remainer.data, location } );
 	return false;
 }
