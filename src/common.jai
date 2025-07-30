@@ -1,80 +1,7 @@
 
-eat_spaces :: ( text: *string, spaces := " \n\t" ) -> s64
-{
-	begin := text.data;
-	while text.count && is_any(text.*[0], spaces)
-	{
-		advance(text);
-	}
-	return text.data - begin;
-}
-
-eat_char:: (in_text: *string, char: u8) -> bool
-{
-	if in_text.data[0] != char
-	{
-		return false;
-	}
-
-	#if DEBUG print("-- eat '%'\n", to_string(*char, 1) );
-
-	advance(in_text);
-
-	return true;
-}
-
-// usage: ti: *Type_Info_Struct; key_ti : *TypeInfo = get_specified_param_ti(ti, "Key_Type");
-get_specified_parameter_ti :: (info: *Type_Info_Struct, specified_parameter_name: string) -> *Type_Info
-{
-  	if info.polymorph_source_struct == null
-  		return null;
-
-    for * it: info.specified_parameters
-    {
-    	if it.name == specified_parameter_name
-    	{
-            address: *u8;
-            
-            if it.offset_into_constant_storage < 0 {
-                address = (cast(*u8)*context) + it.offset_in_bytes;
-            } else {
-                address = info.constant_storage.data + it.offset_into_constant_storage;
-            }
-
-            return (cast(**void)address).*;
-    	}
-    }
-
-    return null;
-}
-
-// Initialize a piece of memory knowing its type info
-initialize :: (data: *void, data_ti: *Type_Info)
-{
-	initializer: (*void) #no_context;
-	
-	// try to get the initializer when data is a struct
-	
-	if data_ti.type == .STRUCT
-	{
-		tis := cast(*Type_Info_Struct)data_ti;
-		if (tis.initializer)
-		{
-			initializer = tis.initializer;
-		}
-	}
-
-	// initialize via initializer or memset
-
-	if initializer
-	{
-		initializer(data);
-	}
-	else
-	{
-        memset(data, 0, data_ti.runtime_size);
-    }
-}
+//
+// Parser interface, see XML_Parser/JSON_Parser implementations
+//
 
 Parser :: struct
 {	
@@ -88,7 +15,7 @@ Parser :: struct
     parse_end          : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
 	parse_object       : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
     parse_object_begin : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
-    parse_object_body  : #type (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool;
+    parse_object_body  : #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool;
     parse_object_end   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
 	parse_table_body   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;      
 	parse_array        : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
@@ -108,6 +35,11 @@ Parser :: struct
 	parse_bool         : #type (out_data: *bool, in_text: *string) -> bool ;     
 	parse_null         : #type (in_text: *string) -> bool;  
 }
+
+//
+// Some generic procedures
+//
+
 
 parse :: (using parser: *Parser, out_data: *$T, input: string) -> success: bool
 {
@@ -244,7 +176,7 @@ generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, out
 
 		#if DEBUG print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
 
-		initialize(member_data, member.type);
+		init_data_with_type(member_data, member.type);
 
 		if !parse_value(parser, member.type, member_data)
 		{
@@ -351,7 +283,7 @@ generic_parse_array_body_T :: (
 
 		// initialize the element
 
-		initialize(el_ptr, ti_array.element_type);
+		init_data_with_type(el_ptr, ti_array.element_type);
 
 		// parse element's value
 
@@ -770,6 +702,83 @@ print_report :: (report: Parser_Report)
 		
 	}
 	print("\n");
+}
+
+eat_spaces :: ( text: *string, spaces := " \n\t" ) -> s64
+{
+	begin := text.data;
+	while text.count && is_any(text.*[0], spaces)
+	{
+		advance(text);
+	}
+	return text.data - begin;
+}
+
+eat_char:: (in_text: *string, char: u8) -> bool
+{
+	if in_text.data[0] != char
+	{
+		return false;
+	}
+
+	#if DEBUG print("-- eat '%'\n", to_string(*char, 1) );
+
+	advance(in_text);
+
+	return true;
+}
+
+// usage: ti: *Type_Info_Struct; key_ti : *TypeInfo = get_specified_param_ti(ti, "Key_Type");
+get_specified_parameter_ti :: (info: *Type_Info_Struct, specified_parameter_name: string) -> *Type_Info
+{
+  	if info.polymorph_source_struct == null
+  		return null;
+
+    for * it: info.specified_parameters
+    {
+    	if it.name == specified_parameter_name
+    	{
+            address: *u8;
+            
+            if it.offset_into_constant_storage < 0 {
+                address = (cast(*u8)*context) + it.offset_in_bytes;
+            } else {
+                address = info.constant_storage.data + it.offset_into_constant_storage;
+            }
+
+            return (cast(**void)address).*;
+    	}
+    }
+
+    return null;
+}
+
+// Initialize a piece of memory knowing its type info
+init_data_with_type :: (data: *void, data_ti: *Type_Info)
+{
+	initializer: (*void) #no_context;
+	
+	// try to get the initializer when data is a struct
+	
+	if data_ti.type == .STRUCT
+	{
+		tis := cast(*Type_Info_Struct)data_ti;
+		if (tis.initializer)
+		{
+			initializer = tis.initializer;
+		}
+	}
+
+	// initialize via initializer or memset
+
+	if initializer
+	{
+		initializer(data);
+	}
+	else
+	{
+        memset(data, 0, data_ti.runtime_size);
+    }
 }
 
 #scope_module

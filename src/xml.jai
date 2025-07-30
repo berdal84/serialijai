@@ -57,7 +57,7 @@ XML_Parser :: struct
     
     // pure
 
-    parse_key                = generic_parse_string; 
+    parse_key                = xml_parse_key; 
 	parse_separator          = xml_parse_separator;
 	parse_kv_separator       = xml_parse_kv_separator;
     parse_integer            = generic_parse_integer;
@@ -115,6 +115,8 @@ xml_parse_kv_separator :: (text: *string) -> bool
 
 xml_parse_key :: (out_data: *string, in_text: *string) -> bool
 {
+	#if DEBUG print("xml_parse_key ...\n");
+
 	eat_spaces(in_text);
 
 	token := in_text.*;
@@ -137,15 +139,11 @@ xml_parse_key :: (out_data: *string, in_text: *string) -> bool
 	if token.count == 0
 		return false;
 
-	print("xml_parse_key -- found: \"%\"\n", token);
+	#if DEBUG print("xml_parse_key -- found: \"%\"\n", token);
+
 	out_data.* = token;
 	advance(in_text, out_data.count);
 	return true;
-}
-
-xml_parse_attr_key :: (using parser: *XML_Parser, key: *string) -> bool
-{
-	return generic_parse_string(key, *remainer);
 }
 
 xml_parse_attr_value :: (using parser: *XML_Parser, ti: *Type_Info, out_data: *void) -> bool
@@ -201,6 +199,8 @@ xml_parse_attrs :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data:
 			break;
 		}
 
+		#if DEBUG print("-- found key: '%'\n", key);
+
 		if !parse_kv_separator(*remainer)
 		{
 			return error(parser, "Expecting a keyvalue separator");
@@ -219,9 +219,9 @@ xml_parse_attrs :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data:
 
 		#if DEBUG print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
 
-		initialize(member_data, member.type);
+		init_data_with_type(member_data, member.type);
 
-		if !parse_value(parser, member.type, member_data)
+		if !xml_parse_attr_value(parser, member.type, member_data)
 		{
 			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
 		}
@@ -264,7 +264,7 @@ xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, ou
 	if !xml_parse_tag_open(expected_tag, *remainer)
 		return error(xx parser, "Unable to parse <%\n", expected_tag);
 
-	initialize(out_data, tis);
+	init_data_with_type(out_data, tis);
 
 	if !xml_parse_attrs(parser, tis, out_data)
 		return false;
