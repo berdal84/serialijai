@@ -72,12 +72,14 @@ serialize :: (using serializer: *$Serializer_T, data: *void, input_ti: *Type_Inf
 generic_parse :: (using parser: *Parser, ti: *Type_Info, out_data: *void, input: string) -> bool
 {
 	if !reset(parser, input)
-		return false;
+		return error(parser, "Unable to reset parser\n");
 	if !parse_begin(parser, ti, out_data)
-		return false;
+		return error(parser, "Unable to begin parsing\n");
 	if !parse_value(parser, ti, out_data)
-		return false;
-	return parse_end(parser, ti, out_data);
+		return error(parser, "Unable to parse value\n");
+	if !parse_end(parser, ti, out_data)
+		return error(parser, "Unable to end parsing\n");
+	return true;
 }
 
 generic_parse_value :: (using parser: *Parser, info: *Type_Info, out_data: *void) -> success: bool
