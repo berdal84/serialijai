@@ -403,9 +403,12 @@ JSON_Parser :: struct
 	parse_null               = generic_parse_null;      
 }
 
-json_init :: (using parser: *JSON_Parser)
+json_init :: (using parser: *JSON_Parser, $reset_procedures := false)
 {
-	parser.* = .{};
+	#if reset_procedures
+	{
+		parser.* = .{}; // This would reset the custom procedures user could have assigned.
+	}
 
 	input_text = "";
 	remainer   = input_text;
