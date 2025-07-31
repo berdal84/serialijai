@@ -13,12 +13,10 @@ Parser :: struct
 	parse_value        : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
 	parse_begin        : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
     parse_end          : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
-	parse_object       : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
     parse_object_begin : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
     parse_object_body  : #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool;
     parse_object_end   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
 	parse_table_body   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;      
-	parse_array        : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
 	parse_array_begin  : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
 	parse_array_body   : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
 	parse_array_end    : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;   
@@ -95,8 +93,8 @@ generic_parse_value :: (using parser: *Parser, ti: *Type_Info, out_data: *void) 
 	    case .FLOAT;   return parse_float(xx ti, out_data, remainer);
 	    case .BOOL;    return parse_bool(xx out_data, remainer);
 	    case .STRING;  return parse_string(xx out_data, remainer );
-	    case .ARRAY;   return parse_array(parser, xx ti, out_data);
-	    case .STRUCT;  return parse_object(parser, xx ti, out_data);
+	    case .ARRAY;   return generic_parse_array(parser, xx ti, out_data);
+	    case .STRUCT;  return generic_parse_object(parser, xx ti, out_data);
 
 	    // case .POINTER;
 	    // case .PROCEDURE;
@@ -461,14 +459,14 @@ generic_parse_JSON_Any :: (using parser: *Parser, out_data: *JSON_Any) -> succes
 		return true;
 	}
 
-	if parse_array(parser, type_info([..]JSON_Any), *out_data.array)
+	if generic_parse_array(parser, type_info([..]JSON_Any), *out_data.array)
 	{
 		out_data.type = .ARRAY;
 		return true;
 	}
 
 	temp_object : JSON_Object;
-	if parse_object(parser, type_info(JSON_Object), *temp_object)
+	if generic_parse_object(parser, type_info(JSON_Object), *temp_object)
 	{
 		out_data.type     = .OBJECT;
 		out_data.object   = New(JSON_Object,, allocator=temp); // FIXME: this should not be temp since we give the result to the user.

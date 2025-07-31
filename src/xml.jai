@@ -44,12 +44,10 @@ XML_Parser :: struct
 	parse_begin              = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return xml_parse_begin(xx parser, ti, data); };
 	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return xml_parse_end(xx parser, ti, data); };
 	parse_value              = generic_parse_value;
-    parse_object             = generic_parse_object;
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_begin(xx parser, tis, data); };
 	parse_object_body        = generic_parse_object_body;
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_end(xx parser, tis, data); };	
 	parse_table_body         = generic_parse_table_body;
-    parse_array              = generic_parse_array;
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_begin(xx parser, tia, data); }
 	parse_array_body         = generic_parse_array_body;
 	parse_array_end          = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_end(xx parser, tia, data); }
@@ -262,12 +260,12 @@ xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, ou
 	defer debug_print("xml_parse_object_begin tag=% DONE\n", expected_tag);	
 	
 	if !xml_parse_tag_open(expected_tag, *remainer)
-		return error(xx parser, "Unable to parse <%\n", expected_tag);
+		return error(xx parser, "Unable to parse % tag (<%)\n", tprint_type(tis), expected_tag);
 
 	init_data_with_type(out_data, tis);
 
 	if !xml_parse_attrs(parser, tis, out_data)
-		return false;
+		return error(xx parser, "Unable to parse %'s attributes", tprint_type(tis) );
 
 	// optionnal in short syntax (<tag attr="val" />)
 	eat_char(*remainer, #char ">");

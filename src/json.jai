@@ -378,14 +378,12 @@ JSON_Parser :: struct
 	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_end(xx parser); };
 	parse_value              = generic_parse_value;
       
-	parse_object             = generic_parse_object;
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_begin(xx parser, tis, data); };
 	parse_object_body        = generic_parse_object_body;
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_end(xx parser, tis, data); };	
 
 	parse_table_body         = generic_parse_table_body;
       
-	parse_array              = generic_parse_array;
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_begin(xx parser, tia, data); }
 	parse_array_body         = generic_parse_array_body;
 	parse_array_end          = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_end(xx parser, tia, data); }
