@@ -74,29 +74,29 @@ generic_parse :: (using parser: *Parser, ti: *Type_Info, out_data: *void, input:
 	if !reset(parser, input)
 		return error(parser, "Unable to reset parser\n");
 	if !parse_begin(parser, ti, out_data)
-		return error(parser, "Unable to begin parsing\n");
+		return error(parser, "Unable to begin %\n", tprint_type(ti) );
 	if !parse_value(parser, ti, out_data)
-		return error(parser, "Unable to parse value\n");
+		return error(parser, "Unable to parse %'s value\n", tprint_type(ti) );
 	if !parse_end(parser, ti, out_data)
-		return error(parser, "Unable to end parsing\n");
+		return error(parser, "Unable to end %\n", tprint_type(ti) );
 	return true;
 }
 
-generic_parse_value :: (using parser: *Parser, info: *Type_Info, out_data: *void) -> success: bool
+generic_parse_value :: (using parser: *Parser, ti: *Type_Info, out_data: *void) -> success: bool
 {
-	debug_print("generic_parse_value (type: %) ...\n", info.type);
-	defer debug_print("generic_parse_value (type: %) DONE\n", info.type);
+	debug_print("generic_parse_value (%) ...\n", tprint_type(ti));
+	defer debug_print("generic_parse_value (%) DONE\n", tprint_type(ti));
 
 	remainer := get_remainer(parser);
 
-	if info.type == {
+	if ti.type == {
 	    
-	    case .INTEGER; return parse_integer(cast(*Type_Info_Integer)info, out_data, remainer);
-	    case .FLOAT;   return parse_float(cast(*Type_Info_Float)info, out_data, remainer);
-	    case .BOOL;    return parse_bool(cast(*bool)out_data, remainer);
-	    case .STRING;  return parse_string(cast(*string)out_data, remainer );
-	    case .ARRAY;   return parse_array(parser, cast(*Type_Info_Array)info, out_data);
-	    case .STRUCT;  return parse_object(parser, cast(*Type_Info_Struct)info, out_data);
+	    case .INTEGER; return parse_integer(xx ti, out_data, remainer);
+	    case .FLOAT;   return parse_float(xx ti, out_data, remainer);
+	    case .BOOL;    return parse_bool(xx out_data, remainer);
+	    case .STRING;  return parse_string(xx out_data, remainer );
+	    case .ARRAY;   return parse_array(parser, xx ti, out_data);
+	    case .STRUCT;  return parse_object(parser, xx ti, out_data);
 
 	    // case .POINTER;
 	    // case .PROCEDURE;
@@ -110,7 +110,7 @@ generic_parse_value :: (using parser: *Parser, info: *Type_Info, out_data: *void
 	    // case .UNTYPED_LITERAL;
 	    // case .UNTYPED_ENUM;
 	    // case .VARIANT;
-	    case; return error(parser, "Unhandled type: %", info.type );
+	    case; return error(parser, "Unhandled type: %", tprint_type(ti) );
 	}
 }
 
@@ -756,37 +756,33 @@ get_specified_parameter_ti :: (info: *Type_Info_Struct, specified_parameter_name
 // Initialize a piece of memory knowing its type info
 init_data_with_type :: (data: *void, data_ti: *Type_Info)
 {
-	initializer: (*void) #no_context;
-	
-	// try to get the initializer when data is a struct
-	
+	// Some struct may have an initializer
 	if data_ti.type == .STRUCT
 	{
 		tis := cast(*Type_Info_Struct)data_ti;
 		if (tis.initializer)
 		{
-			initializer = tis.initializer;
+			tis.initializer(data);
+			return;
 		}
 	}
 
-	// initialize via initializer or memset
-
-	if initializer
-	{
-		initializer(data);
-	}
-	else
-	{
-        memset(data, 0, data_ti.runtime_size);
-    }
+	// By default
+	memset(data, 0, data_ti.runtime_size);
 }
-
 
 debug_print :: (string_format: string, args: ..Any) #expand
 {
 	#if DEBUG {
 		print(string_format, ..args);;
 	}
+}
+
+tprint_type :: (info: *Type_Info, print_parameters_matching_defaults := false) -> string
+{
+	builder: String_Builder;
+	print_type_to_builder(*builder, info, print_parameters_matching_defaults);
+	return builder_to_string(*builder,, allocator=temp);
 }
 
 #scope_module
