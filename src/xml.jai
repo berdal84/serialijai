@@ -115,7 +115,7 @@ xml_parse_kv_separator :: (text: *string) -> bool
 
 xml_parse_key :: (out_data: *string, in_text: *string) -> bool
 {
-	#if DEBUG print("xml_parse_key ...\n");
+	debug_print("xml_parse_key ...\n");
 
 	eat_spaces(in_text);
 
@@ -139,7 +139,7 @@ xml_parse_key :: (out_data: *string, in_text: *string) -> bool
 	if token.count == 0
 		return false;
 
-	#if DEBUG print("xml_parse_key -- found: \"%\"\n", token);
+	debug_print("xml_parse_key -- found: \"%\"\n", token);
 
 	out_data.* = token;
 	advance(in_text, out_data.count);
@@ -186,8 +186,8 @@ xml_parse_attr_value :: (using parser: *XML_Parser, ti: *Type_Info, out_data: *v
 
 xml_parse_attrs :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void ) -> bool
 {
-	#if DEBUG print("xml_parse_attrs %...\n", tis.name);
-	defer #if DEBUG print("xml_parse_attrs % (end)\n", tis.name);
+	debug_print("xml_parse_attrs %...\n", tis.name);
+	defer debug_print("xml_parse_attrs % (end)\n", tis.name);
 
 	key_index := 0;
 	while ( remainer.count )
@@ -217,7 +217,7 @@ xml_parse_attrs :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data:
 
 		member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
 
-		#if DEBUG print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
+		debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
 
 		init_data_with_type(member_data, member.type);
 
@@ -258,8 +258,8 @@ xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, ou
 {
 	expected_tag := xml_get_tag_from_notes(tis);
 
-	print("xml_parse_object_begin... tag=%\n", expected_tag);
-	defer print("xml_parse_object_begin tag=% DONE\n", expected_tag);	
+	debug_print("xml_parse_object_begin... tag=%\n", expected_tag);
+	defer debug_print("xml_parse_object_begin tag=% DONE\n", expected_tag);	
 	
 	if !xml_parse_tag_open(expected_tag, *remainer)
 		return error(xx parser, "Unable to parse <%\n", expected_tag);
@@ -321,7 +321,7 @@ xml_parse_unknown_tag_open :: (out_tag: *string, in_text: *string) -> bool
 	// optionnal for short notation: <tag/>
 	eat_char(*temp_text, #char ">");
 
-	print("xml_parse_unknown_tag_open - result: %\n", out_tag.*);
+	debug_print("xml_parse_unknown_tag_open - result: %\n", out_tag.*);
 
 	in_text.* = temp_text;
 
@@ -347,8 +347,8 @@ xml_parse_tag_close :: (expected_tag: string, in_text: *string) -> bool
 
 xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
 {
-	print("xml_parse_object_body ...\n");
-	defer print("xml_parse_object_body DONE\n");
+	debug_print("xml_parse_object_body ...\n");
+	defer debug_print("xml_parse_object_body DONE\n");
 
 	while remainer.count
 	{

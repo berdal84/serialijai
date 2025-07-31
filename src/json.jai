@@ -283,7 +283,7 @@ json_serialize_struct :: (using serializer: *JSON_Serializer, data: *void, ti: *
 
 		if it.offset_into_constant_storage >= 0
 		{
-			#if DEBUG print("offset_into_constant_storage is not handled yet\n");
+			debug_print("offset_into_constant_storage is not handled yet\n");
 			continue;
 		}
 

@@ -84,10 +84,8 @@ generic_parse :: (using parser: *Parser, ti: *Type_Info, out_data: *void, input:
 
 generic_parse_value :: (using parser: *Parser, info: *Type_Info, out_data: *void) -> success: bool
 {
-	#if DEBUG {
-		print("generic_parse_value (type: %) ...\n", info.type);
-		defer print("generic_parse_value (type: %) DONE\n", info.type);
-	}
+	debug_print("generic_parse_value (type: %) ...\n", info.type);
+	defer debug_print("generic_parse_value (type: %) DONE\n", info.type);
 
 	remainer := get_remainer(parser);
 
@@ -138,8 +136,8 @@ generic_parse_object :: (using parser: *Parser, tis: *Type_Info_Struct, out_data
 
 generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool
 {
-	#if DEBUG print("generic_parse_object_body %...\n", tis.name);
-	defer #if DEBUG print("generic_parse_object_body % (end)\n", tis.name);
+	debug_print("generic_parse_object_body %...\n", tis.name);
+	defer debug_print("generic_parse_object_body % (end)\n", tis.name);
 
 	if initialize_data
 	{
@@ -176,7 +174,7 @@ generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, out
 
 		member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
 
-		#if DEBUG print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
+		debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
 
 		init_data_with_type(member_data, member.type);
 
@@ -187,7 +185,7 @@ generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, out
 
 		if !parse_separator(remainer)
 		{
-			print("Unable to find a separator after keyvalue \"%\" (key_index: %, remainer: ...%\n", key, key_index, remainer);
+			debug_print("Unable to find a separator after keyvalue \"%\" (key_index: %, remainer: ...%\n", key, key_index, remainer);
 			break;
 		}
 
@@ -243,7 +241,7 @@ generic_parse_array_body_T :: (
 		{
 			if next_id == ti_array.array_count
 			{
-				#if DEBUG print("-- fixed array end-bound reached (count: %)\n", ti_array.array_count);
+				debug_print("-- fixed array end-bound reached (count: %)\n", ti_array.array_count);
 				break;
 			}
 		}
@@ -252,12 +250,12 @@ generic_parse_array_body_T :: (
 		
 		if next_id && !ate_comma
 		{
-			#if DEBUG print("-- no more elements to parse (next_id: %)\n", next_id);
+			debug_print("-- no more elements to parse (next_id: %)\n", next_id);
 			break;
 		}
 		else
 		{
-			#if DEBUG print("-- try to parse element with id %\n", next_id);
+			debug_print("-- try to parse element with id %\n", next_id);
 		}
 
 		// reserve space for next element
@@ -299,7 +297,7 @@ generic_parse_array_body_T :: (
 			break;
 		}
 
-		#if DEBUG print("-- parsed array element with id %\n", next_id );
+		debug_print("-- parsed array element with id %\n", next_id );
 
 		next_id += 1;						
 	}
@@ -402,7 +400,7 @@ generic_parse_table_body_T :: (using parser: *Parser, out_table: *$T/Table) -> s
 			return error(parser, "Unable to parse %1's value (type: %2)\n", key, T.Value_Type);
 		}
 
-		#if VERBOSE print(" -- adding \"% : %\" into Table ...\n", key, value);
+		debug_print(" -- adding \"% : %\" into Table ...\n", key, value);
 		table_add(out_table, key, value); // no need to copy_string(key), is is already allocated on the heap by parse_string
 
 		i += 1;
@@ -415,8 +413,8 @@ generic_parse_bool :: (out_data: *bool, in_text: *string) -> success: bool
 {
 	eat_spaces(in_text);
 
-	#if DEBUG print("parse_bool ...\n");
-	#if DEBUG defer print("parse_bool (end)\n");
+	debug_print("parse_bool ...\n");
+	defer debug_print("parse_bool (end)\n");
 
 	if generic_parse_exact_word(in_text, "true")
 	{
@@ -504,8 +502,8 @@ generic_parse_integer_T :: (out_integer: *$T, in_text: *string) -> bool
 {
 	info_integer :: type_info(T);
 
-	#if DEBUG print("generic_parse_int_T (%) ...\n", T);
-	#if DEBUG defer print("generic_parse_int_T (%) DONE\n", T);
+	debug_print("generic_parse_int_T (%) ...\n", T);
+	defer debug_print("generic_parse_int_T (%) DONE\n", T);
 
 	value:, success:, in_text.* = string_to_int(in_text.*, 10, T);
 
@@ -514,7 +512,7 @@ generic_parse_integer_T :: (out_integer: *$T, in_text: *string) -> bool
 		return false;
 	}
 
-	#if DEBUG print("-- value = % \n", value);
+	debug_print("-- value = % \n", value);
 	
 	out_integer.* = value;
 
@@ -536,8 +534,8 @@ generic_parse_float_T :: (out_float: *$T, in_text: *string ) -> bool
 {
 	eat_spaces(in_text);
 
-	#if DEBUG print("generic_parse_float_T (%) ...\n", T);
-	#if DEBUG defer print("generic_parse_float_T (%) DONE\n", T);
+	debug_print("generic_parse_float_T (%) ...\n", T);
+	defer debug_print("generic_parse_float_T (%) DONE\n", T);
 
 	result64:, success:, in_text.* = string_to_float(in_text.*);
 	
@@ -546,7 +544,7 @@ generic_parse_float_T :: (out_float: *$T, in_text: *string ) -> bool
 		return false;
 	}
 
-	#if DEBUG print("-- value = % (parsed as float64, will be cast)\n", result64);
+	debug_print("-- value = % (parsed as float64, will be cast)\n", result64);
 
 	out_float.* = cast(T)result64; // TODO: warns on precision loss?
 	
@@ -559,8 +557,8 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 
 	out_data.* = "";		
 
-	#if DEBUG print("generic_parse_string ...\n");
-	#if DEBUG defer print("generic_parse_string (end)\n");
+	debug_print("generic_parse_string ...\n");
+	defer debug_print("generic_parse_string (end)\n");
 
 	eat_spaces(in_text);
 
@@ -575,10 +573,10 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 	escape_next_char := false;
 	while (true)
 	{
-		#if DEBUG print("generic_parse_string() - Searching double quote... %\n", string.{ data=begin, count=current_char-begin+1 } );
+		debug_print("generic_parse_string() - Searching double quote... %\n", string.{ data=begin, count=current_char-begin+1 } );
 		if !escape_next_char && current_char.* ==  #char "\""
         {
-        	#if DEBUG print("generic_parse_string() - Searching double quote... FOUND at pos %\n", current_char-begin);
+        	debug_print("generic_parse_string() - Searching double quote... FOUND at pos %\n", current_char-begin);
         	break;
         }
 		
@@ -597,7 +595,7 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 
 	advance(in_text, current_char - begin + 1);
 
-	#if DEBUG print("-- parsed string = '%'\n", out_data.*);
+	debug_print("-- parsed string = '%'\n", out_data.*);
 
 	return true;
 }
@@ -723,7 +721,7 @@ eat_char:: (in_text: *string, char: u8) -> bool
 		return false;
 	}
 
-	#if DEBUG print("-- eat '%'\n", to_string(*char, 1) );
+	debug_print("-- eat '%'\n", to_string(*char, 1) );
 
 	advance(in_text);
 
@@ -781,6 +779,14 @@ init_data_with_type :: (data: *void, data_ti: *Type_Info)
 	{
         memset(data, 0, data_ti.runtime_size);
     }
+}
+
+
+debug_print :: (string_format: string, args: ..Any) #expand
+{
+	#if DEBUG {
+		print(string_format, ..args);;
+	}
 }
 
 #scope_module
