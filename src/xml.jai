@@ -32,7 +32,6 @@ XML_Parser :: struct
 
 	// data
 
-	verbose    := false;
 	input_text : string; // owned
 	remainer   : string; // view over input_text's data
 	messages   : [..]Parser_Message;
@@ -418,13 +417,10 @@ xml_parse_object_T :: (parser: *XML_Parser, out_data: *$T) -> bool
 
 xml_parse_begin :: (using parser : *XML_Parser, ti: *Type_Info, data: *void) -> success: bool
 {
-	if parser.verbose
-	{
-		print("______________________________________________________________\n");
-		print("\n");
-		print(" xml_parse_begin() - Parsing xml: '%'\n", input_text);
-		print("\n");
-	}
+	debug_print("______________________________________________________________\n");
+	debug_print("\n");
+	debug_print(" xml_parse_begin() - Parsing xml: '%'\n", input_text);
+	debug_print("\n");
 
 	return true; // no reason to fail for now...
 }
@@ -438,7 +434,7 @@ xml_parse_end :: (using parser: *XML_Parser, ti: *Type_Info, data: *void) -> suc
 		return error(xx parser, "Could not parse further");
 	}
 	
-	if verbose print("xml_parse_end()\n");
+	debug_print("xml_parse_end()\n");
 	
 	return true;
 }

@@ -365,7 +365,6 @@ JSON_Parser :: struct
 
 	// data
 
-	verbose    := false;
 	input_text : string; // owned, input is always copied when parsing begins
 	remainer   : string;
 	messages   : [..]Parser_Message;
@@ -374,16 +373,13 @@ JSON_Parser :: struct
 
 	get_remainer             = (parser: *Parser) -> *string { return *(cast(*JSON_Parser)parser).remainer; };
 	reset                    = (parser: *Parser, input: string) -> bool { return json_reset(xx parser, input); };
-	parse_begin              = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_begin(xx parser); };
-	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_end(xx parser); };
+	parse_begin              = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_begin(xx parser, ti, data); };
+	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_end(xx parser, ti, data); };
 	parse_value              = generic_parse_value;
-      
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_begin(xx parser, tis, data); };
 	parse_object_body        = generic_parse_object_body;
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_end(xx parser, tis, data); };	
-
 	parse_table_body         = generic_parse_table_body;
-      
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_begin(xx parser, tia, data); }
 	parse_array_body         = generic_parse_array_body;
 	parse_array_end          = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_end(xx parser, tia, data); }
@@ -501,20 +497,17 @@ json_parse_kv_separator :: (in_text: *string) -> success: bool
 	return eat_char(in_text, #char ":");
 }
 
-json_parse_begin :: (using parser : *JSON_Parser) -> success: bool
+json_parse_begin :: (using parser : *JSON_Parser, ti: *Type_Info, data: *void) -> success: bool
 {
-	if parser.verbose
-	{
-		print("______________________________________________________________\n");
-		print("\n");
-		print(" json_parse_begin() - Parsing json: '%'\n", input_text);
-		print("\n");
-	}
+	debug_print("______________________________________________________________\n");
+	debug_print("\n");
+	debug_print(" json_parse_begin() - Parsing json: '%'\n", input_text);
+	debug_print("\n");
 
 	return true; // no reason to fail for now...
 }
 
-json_parse_end :: (using parser: *JSON_Parser) -> success: bool
+json_parse_end :: (using parser: *JSON_Parser, ti: *Type_Info, data: *void) -> success: bool
 {
 	eat_spaces(*remainer);
 
@@ -523,7 +516,7 @@ json_parse_end :: (using parser: *JSON_Parser) -> success: bool
 		return error(parser, "Could not parse further");
 	}
 	
-	if verbose print("json_parse_end()\n");
+	debug_print("json_parse_end()\n");
 	
 	return true;
 }
