@@ -32,9 +32,12 @@ XML_Parser :: struct
 
 	// data
 
-	input_text : string; // owned
-	remainer   : string; // view over input_text's data
-	messages   : [..]Parser_Message;
+	separator    = " ";
+	kv_separator = "=";
+
+	input_text   : string; // owned
+	remainer     : string; // view over input_text's data
+	messages     : [..]Parser_Message;
 
 	// non-pure
 	
@@ -46,22 +49,103 @@ XML_Parser :: struct
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_begin(xx parser, tis, data); };
 	parse_object_body        = generic_parse_object_body;
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_end(xx parser, tis, data); };	
-	parse_table_body         = generic_parse_table_body;
+	parse_object_member      = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return xml_parse_object_member(xx parser, tis, data); }
+	parse_table_body         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return generic_parse_table_body(parser, tis, data); };
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_begin(xx parser, tia, data); }
-	parse_array_body         = generic_parse_array_body;
+	parse_array_body         = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return generic_parse_array_body(parser, tia, data); }
 	parse_array_end          = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_end(xx parser, tia, data); }
-	error                    = (using parser: *Parser, string_format: string, args: ..Any) -> bool { return xml_error(xx parser, string_format, ..args); };
+	error                    = (parser: *Parser, string_format: string, args: ..Any, location := #caller_location) -> bool { return xml_error(xx parser, string_format, ..args, location); };
     
     // pure
 
-    parse_key                = xml_parse_key; 
-	parse_separator          = xml_parse_separator;
-	parse_kv_separator       = xml_parse_kv_separator;
     parse_integer            = generic_parse_integer;
 	parse_float              = generic_parse_float;    
-	parse_string             = generic_parse_string;   
+	parse_string             = xml_parse_string;   
 	parse_bool               = generic_parse_bool;     
 	parse_null               = generic_parse_null;     
+}
+
+xml_parse_object_member :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
+{
+	key : string;
+	if !xml_parse_unknown_tag_open(*key, *remainer)
+	{
+		return false;
+	}
+
+	member, offset_in_bytes := get_field(tis, key);
+	
+	if member == null
+	{
+		return error(parser, "Unable to find field '%1' in struct '%2'", key, tis.name);
+	}
+
+	assert(offset_in_bytes >= 0, "Constants not handled, we should probably skip what's next. But no time to think about it now.");
+
+	member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
+
+	debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
+
+	init_data_with_type(member_data, member.type);
+
+	if !parse_value(parser, member.type, member_data)
+	{
+		return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, tprint_type(member.type) );
+	}
+
+	if !xml_parse_tag_close(key, *remainer)
+	{
+		return error(parser, "Expecting </%>\n");
+	}
+
+	return true;
+}
+
+xml_parse_string :: (out_data: *string, in_text: *string) -> bool
+{
+	assert(out_data != null);
+
+	out_data.* = "";		
+
+	debug_print("xml_parse_string ...\n");
+	defer debug_print("xml_parse_string (end)\n");
+
+	eat_spaces(in_text);
+
+	//
+	// In XML, a string does not need to be in double quotes (ex: <string>This is a String</string> )
+	// In this implementation we parse any char until we reach "<" (new tag) or end of string.
+	//
+	begin: *u8 = in_text.data;
+	current_char: *u8 = begin;
+	escape_next_char := false;
+	while (true)
+	{
+		debug_print("xml_parse_string() - Searching '<' ... %\n", string.{ data=begin, count=current_char-begin+1 } );
+		if !escape_next_char && current_char.* ==  #char "<"
+        {
+        	debug_print("xml_parse_string() - Searching '<' ... FOUND at pos %\n", current_char-begin);
+        	break;
+        }
+		
+		escape_next_char = current_char.* == #char "\\";
+        
+        current_char += 1;
+
+        if current_char == in_text.data + in_text.count
+        {
+        	return false;
+        }
+    }
+
+    portion := slice(in_text.*, 0, current_char - begin);
+	out_data.* = copy_string(portion); // we copy because we do not want to return something pointing to our internal input_text.
+
+	advance(in_text, current_char - begin);
+
+	debug_print("-- parsed string = '%'\n", out_data.*);
+
+	return true;
 }
 
 xml_get_remainer :: (parser: *XML_Parser) -> *string
@@ -110,9 +194,9 @@ xml_parse_kv_separator :: (text: *string) -> bool
 	return eat_char(text, #char "=");
 }
 
-xml_parse_key :: (out_data: *string, in_text: *string) -> bool
+xml_parse_attribute_key :: (out_data: *string, in_text: *string) -> bool
 {
-	debug_print("xml_parse_key ...\n");
+	debug_print("xml_parse_attribute_key ...\n");
 
 	eat_spaces(in_text);
 
@@ -136,14 +220,14 @@ xml_parse_key :: (out_data: *string, in_text: *string) -> bool
 	if token.count == 0
 		return false;
 
-	debug_print("xml_parse_key -- found: \"%\"\n", token);
+	debug_print("xml_parse_attribute_key -- found: \"%\"\n", token);
 
 	out_data.* = token;
 	advance(in_text, out_data.count);
 	return true;
 }
 
-xml_parse_attr_value :: (using parser: *XML_Parser, ti: *Type_Info, out_data: *void) -> bool
+xml_parse_attribute_value :: (using parser: *XML_Parser, ti: *Type_Info, out_data: *void) -> bool
 {
 	value_as_string : string;
 
@@ -181,24 +265,24 @@ xml_parse_attr_value :: (using parser: *XML_Parser, ti: *Type_Info, out_data: *v
 	return error(parser, "Unhandled attribute type %\n", ti.type);	
 }
 
-xml_parse_attrs :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void ) -> bool
+xml_parse_attributes :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void ) -> bool
 {
-	debug_print("xml_parse_attrs %...\n", tis.name);
-	defer debug_print("xml_parse_attrs % (end)\n", tis.name);
+	debug_print("xml_parse_attributes %...\n", tis.name);
+	defer debug_print("xml_parse_attributes % (end)\n", tis.name);
 
 	key_index := 0;
 	while ( remainer.count )
 	{
 		key: string;
 
-		if !parse_key(*key, *remainer,, allocator=temp)
+		if !xml_parse_attribute_key(*key, *remainer,, allocator=temp)
 		{
 			break;
 		}
 
-		#if DEBUG print("-- found key: '%'\n", key);
+		debug_print("-- found key: '%'\n", key);
 
-		if !parse_kv_separator(*remainer)
+		if !generic_parse_exact_word(*remainer, kv_separator)
 		{
 			return error(parser, "Expecting a keyvalue separator");
 		}
@@ -218,12 +302,12 @@ xml_parse_attrs :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data:
 
 		init_data_with_type(member_data, member.type);
 
-		if !xml_parse_attr_value(parser, member.type, member_data)
+		if !xml_parse_attribute_value(parser, member.type, member_data)
 		{
-			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
+			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, tprint_type(member.type) );
 		}
 
-		if !parse_separator(*remainer)
+		if !generic_parse_exact_word(*remainer, separator)
 		{
 			break;
 		}
@@ -263,7 +347,7 @@ xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, ou
 
 	init_data_with_type(out_data, tis);
 
-	if !xml_parse_attrs(parser, tis, out_data)
+	if !xml_parse_attributes(parser, tis, out_data)
 		return error(xx parser, "Unable to parse %'s attributes", tprint_type(tis) );
 
 	// optionnal in short syntax (<tag attr="val" />)
@@ -277,11 +361,9 @@ xml_parse_unknown_tag_open :: (out_tag: *string, in_text: *string) -> bool
 	//
 	// parse " <"
 	//
-	temp_text : string = in_text.*;
-
-	eat_spaces(*temp_text);
+	cursor : string = in_text.*;
 	
-	if !eat_char(*temp_text, #char "<")
+	if !generic_parse_exact_word(*cursor, "<")
 	{
 		return false;
 	}
@@ -289,24 +371,25 @@ xml_parse_unknown_tag_open :: (out_tag: *string, in_text: *string) -> bool
 	//
 	// parse identifier/tag
 	//
-	eat_spaces(*temp_text);
+	eat_spaces(*cursor);
 
-	if temp_text.count == 0
+	if cursor.count == 0
 	{
 		return false;
 	}
 
-	if !is_alpha(temp_text.data[0])
+	if !is_alpha(cursor.data[0])
 	{
 		return false;
 	}
 
-	out_tag.data  = temp_text.data;
+	out_tag.data  = cursor.data;
 	out_tag.count = 0;
 
-	while out_tag.count < temp_text.count
+	while out_tag.count < cursor.count
 	{
 		out_tag.count += 1;
+		advance(*cursor, 1);
 		last_char := out_tag.data[out_tag.count-1];
 		if !is_alnum(last_char)
 		{
@@ -316,11 +399,11 @@ xml_parse_unknown_tag_open :: (out_tag: *string, in_text: *string) -> bool
 	}
 
 	// optionnal for short notation: <tag/>
-	eat_char(*temp_text, #char ">");
+	generic_parse_exact_word(*cursor, ">");
 
 	debug_print("xml_parse_unknown_tag_open - result: %\n", out_tag.*);
 
-	in_text.* = temp_text;
+	in_text.* = cursor;
 
 	return true;
 }
@@ -340,46 +423,6 @@ xml_parse_tag_close :: (expected_tag: string, in_text: *string) -> bool
 {
 	expected_word := tprint("</%>", expected_tag);
 	return generic_parse_exact_word(in_text, expected_word);
-}
-
-xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
-{
-	debug_print("xml_parse_object_body ...\n");
-	defer debug_print("xml_parse_object_body DONE\n");
-
-	while remainer.count
-	{
-		key : string;
-		if !xml_parse_unknown_tag_open(*key, *remainer)
-		{
-			break;
-		}
-
-		member, offset_in_bytes := get_field(tis, key);
-		
-		if member == null
-		{
-			return error(parser, "Unable to find field '%1' in struct '%2'", key, tis.name);
-		}
-
-		assert(offset_in_bytes >= 0, "Constants not handled, we should probably skip what's next. But no time to think about it now.");
-
-		member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
-
-		initialize(member_data, member.type);
-
-		if !parse_value(parser, member.type, member_data)
-		{
-			return error(parser, "Unable to parse value for %\n", key);
-		}
-
-		if !xml_parse_tag_close(key, *remainer)
-		{
-			return error(parser, "Expecting </%>\n");
-		}
-	}
-
-	return true;
 }
 
 xml_parse_object_end :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool

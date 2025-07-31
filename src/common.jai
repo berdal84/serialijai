@@ -5,6 +5,10 @@
 
 Parser :: struct
 {	
+	// data
+
+	separator    : string;
+	kv_separator : string;
 
 	// procedures using Parser's state
 
@@ -16,17 +20,15 @@ Parser :: struct
     parse_object_begin : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
     parse_object_body  : #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool;
     parse_object_end   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
+	parse_object_member: #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool;
 	parse_table_body   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;      
 	parse_array_begin  : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
 	parse_array_body   : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
 	parse_array_end    : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;   
-	error              : #type (parser: *Parser, format_string: string, args: ..Any) -> bool;
+	error              : #type (parser: *Parser, format_string: string, args: ..Any, location := #caller_location) -> bool;
 
 	// pure  procedures
 
-	parse_key          : #type (out_data: *string, in_text: *string) -> bool;
-    parse_separator    : #type (in_text: *string) -> bool;
-	parse_kv_separator : #type (in_text: *string) -> bool;
 	parse_integer      : #type (info_integer: *Type_Info_Integer, out_data: *void, in_text: *string) -> bool;
 	parse_float        : #type (info_float: *Type_Info_Float, out_data: *void, in_text: *string) -> bool;   
 	parse_string       : #type (out_data: *string, in_text: *string) -> bool;   
@@ -120,19 +122,36 @@ generic_parse_object :: (using parser: *Parser, tis: *Type_Info_Struct, out_data
 		return generic_parse_JSON_Any(parser, out_data);
 	}
 
-	if tis.name == "Table"
+
+	if !parse_object_begin(parser, tis, out_data)
 	{
-		return parse_object_begin(parser, tis, out_data)
-	    && parse_table_body(parser, tis, out_data)
-	    && parse_object_end(parser, tis, out_data);
+		return error(parser, "Unable to parse object begin (type: %)\n", tprint_type(tis));
 	}
 
-	return parse_object_begin(parser, tis, out_data)
-	    && parse_object_body(parser, tis, out_data)
-	    && parse_object_end(parser, tis, out_data);
+	if tis.name == "Table"
+	{
+		if !parse_table_body(parser, tis, out_data)
+		{
+			return error(parser, "Unable to parse table body (type: %)\n", tprint_type(tis));
+		}
+	}
+	else
+	{
+		if !parse_object_body(parser, tis, out_data)
+		{
+			return error(parser, "Unable to parse object body (type: %)\n", tprint_type(tis));
+		}
+	}
+
+	if !parse_object_end(parser, tis, out_data)
+	{
+		return error(parser, "Unable to begin object end (type: %)\n", tprint_type(tis));
+	}
+
+	return true;
 }
 
-generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool
+generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, data: *void, initialize_data := true ) -> bool
 {
 	debug_print("generic_parse_object_body %...\n", tis.name);
 	defer debug_print("generic_parse_object_body % (end)\n", tis.name);
@@ -141,57 +160,25 @@ generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, out
 	{
 		if tis.initializer != null
 		{
-			tis.initializer(out_data);
+			tis.initializer(data);
 		}	
 	}
 
-	key_index := 0;
-	remainer := get_remainer(parser);
+	index := 0;
+	remainer := get_remainer(parser); // This is odd, I guess if we have generic_xxx procedures, we should have some generic data
 	while ( remainer.count )
 	{
-		key: string;
-
-		if !parse_key(*key, remainer,, allocator=temp)
+		if !parse_object_member(parser, tis, data, index)
 		{
 			break;
 		}
-
-		if !parse_kv_separator(remainer)
-		{
-			return error(parser, "Expecting a keyvalue separator");
-		}
-
-		member, offset_in_bytes := get_field(tis, key);
-		
-		if member == null
-		{
-			return error(parser, "Unable to find field '%1' in struct '%2'", key, tis.name);
-		}
-
-		assert(offset_in_bytes >= 0, "Constants not handled, we should probably skip what's next. But no time to think about it now.");
-
-		member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
-
-		debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
-
-		init_data_with_type(member_data, member.type);
-
-		if !parse_value(parser, member.type, member_data)
-		{
-			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
-		}
-
-		if !parse_separator(remainer)
-		{
-			debug_print("Unable to find a separator after keyvalue \"%\" (key_index: %, remainer: ...%\n", key, key_index, remainer);
-			break;
-		}
-
-		key_index += 1;
+		index += 1;
 	}
 
 	return true;
 }
+
+
 
 generic_parse_array :: (using parser: *Parser, tia: *Type_Info_Array, out_data: *void) -> bool
 {
@@ -210,7 +197,7 @@ generic_parse_array_T :: (using parser: *Parser, out_data: *$Array_T) -> bool
 }
 
 
-generic_parse_array_body :: (using parser: *Parser, info_array: *Type_Info_Array, out_data: *void ) -> bool
+generic_parse_array_body :: (using parser: *Parser, info_array: *Type_Info_Array, out_data: *void) -> bool
 {
 	if #complete info_array.array_type ==
 	{
@@ -244,7 +231,7 @@ generic_parse_array_body_T :: (
 			}
 		}
 
-		ate_comma := next_id && parse_separator(remainer);
+		ate_comma := next_id && generic_parse_exact_word(remainer, separator);
 		
 		if next_id && !ate_comma
 		{
@@ -375,7 +362,7 @@ generic_parse_table_body_T :: (using parser: *Parser, out_table: *$T/Table) -> s
 	remainer := get_remainer(parser);
 	while ( remainer.count )
 	{
-		ate_comma := i && parse_separator(remainer);
+		ate_comma := i && generic_parse_exact_word(remainer, separator);
 
 		key: T.Key_Type;
 		assert(T.Key_Type == string);
@@ -386,7 +373,7 @@ generic_parse_table_body_T :: (using parser: *Parser, out_table: *$T/Table) -> s
 			break;
 		}
 
-		if !parse_kv_separator(remainer)
+		if !generic_parse_exact_word(remainer, kv_separator)
 		{
 			return false;
 		}

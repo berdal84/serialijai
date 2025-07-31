@@ -20,7 +20,7 @@ run_02_how_to_extend :: ()
 		MyTable :: Table(string, MyStruct);
 
 		// Override parser.parse_table's implementation:
-		json_parser.parse_table_body = (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success: bool
+		json_parser.parse_table_body = (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void) -> success: bool
 		{
 			// Make sure we're parsing a MyTable
 			if tis == type_info(MyTable)
@@ -30,7 +30,7 @@ run_02_how_to_extend :: ()
 			}
 
 			// Fallback on default
-			return json_parse_table_body(parser, tis, out_data);
+			return generic_parse_table_body(parser, tis, out_data);
 		}		
 
 		// Now we can parse a JSON_Parser using this type:

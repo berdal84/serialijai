@@ -65,6 +65,11 @@ test_xml_parse :: ()
 		}
 		
 		expect(ok);
+		expect(p.color == "red");
+		expect(p.text  == "Hello, World");
+
+		free(p.text);
+		free(p.color);
 	}
 }
 

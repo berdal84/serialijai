@@ -365,6 +365,9 @@ JSON_Parser :: struct
 
 	// data
 
+	separator    = ",";      
+	kv_separator = ":";
+
 	input_text : string; // owned, input is always copied when parsing begins
 	remainer   : string;
 	messages   : [..]Parser_Message;
@@ -379,22 +382,20 @@ JSON_Parser :: struct
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_begin(xx parser, tis, data); };
 	parse_object_body        = generic_parse_object_body;
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_end(xx parser, tis, data); };	
-	parse_table_body         = generic_parse_table_body;
+	parse_object_member      = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return json_parse_object_member(xx parser, tis, data, index); }
+	parse_table_body         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return generic_parse_table_body(parser, tis, data); };
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_begin(xx parser, tia, data); }
-	parse_array_body         = generic_parse_array_body;
+	parse_array_body         = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return generic_parse_array_body(parser, tia, data); }
 	parse_array_end          = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_end(xx parser, tia, data); }
-	error                    = (parser: *Parser, string_format: string, args: ..Any) -> bool { return json_error(xx parser, string_format, ..args); };
+	error                    = (parser: *Parser, string_format: string, args: ..Any, location := #caller_location) -> bool { return json_error(xx parser, string_format, ..args, location); };
       
     // pure
 
-    parse_key                = generic_parse_string;          
-    parse_separator          = json_parse_separator;
-	parse_kv_separator       = json_parse_kv_separator;
 	parse_integer            = generic_parse_integer;
 	parse_float              = generic_parse_float;    
 	parse_string             = generic_parse_string;   
 	parse_bool               = generic_parse_bool;     
-	parse_null               = generic_parse_null;      
+	parse_null               = generic_parse_null; 
 }
 
 json_init :: (using parser: *JSON_Parser, $reset_procedures := false)
@@ -532,4 +533,46 @@ json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, l
 {
 	array_add(*messages, Parser_Message.{ .ERROR, tprint(string_format, ..args), remainer.data, location } );
 	return false;
+}
+
+json_parse_object_member :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool
+{
+	if index > 0 && !json_parse_separator(*remainer)
+	{
+		debug_print("Expecting a separator after key #%\n", index);
+		return false;
+	}
+
+	key: string;
+	if !parse_string(*key, *remainer,, allocator=temp)
+	{
+		return false;
+	}
+
+	if !generic_parse_exact_word(*remainer, ":")
+	{
+		return error(parser, "Expecting a keyvalue separator");
+	}
+
+	member, offset_in_bytes := get_field(tis, key);
+	
+	if member == null
+	{
+		return error(parser, "Unable to find field '%1' in struct '%2'", key, tis.name);
+	}
+
+	assert(offset_in_bytes >= 0, "Constants not handled, we should probably skip what's next. But no time to think about it now.");
+
+	member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
+
+	debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
+
+	init_data_with_type(member_data, member.type);
+
+	if !parse_value(parser, member.type, member_data)
+	{
+		return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
+	}
+
+	return true;
 }
