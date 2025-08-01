@@ -231,35 +231,28 @@ xml_parse_attribute_value :: (using parser: *XML_Parser, ti: *Type_Info, out_dat
 {
 	value_as_string : string;
 
-	if !generic_parse_string(*value_as_string, *remainer)
+	if !generic_parse_string_view(*value_as_string, *remainer)
 	{
-		free(value_as_string);
 		return error(parser, "Unable to parse attribute value\n");
 	}
 
 	if ti.type == {
 		case .STRING;
 		{
-			(cast(*string)out_data).* = value_as_string;
+			(cast(*string)out_data).* = copy_string(value_as_string);
 			return true;
 		}
 		case .INTEGER;
 		{
-			ok := parse_integer(xx ti, out_data, *value_as_string);
-			free(value_as_string);
-			return ok;
+			return parse_integer(xx ti, out_data, *value_as_string);
 		}
 		case .FLOAT;
 		{
-			ok := parse_float(xx ti, out_data, *value_as_string);
-			free(value_as_string);
-			return ok;
+			return parse_float(xx ti, out_data, *value_as_string);
 		}
 		case .BOOL;
 		{
-			ok := parse_bool(out_data, *value_as_string);
-			free(value_as_string);
-			return ok;
+			return parse_bool(out_data, *value_as_string);
 		}
 	}
 	return error(parser, "Unhandled attribute type %\n", ti.type);	
@@ -307,7 +300,7 @@ xml_parse_attributes :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_
 			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, tprint_type(member.type) );
 		}
 
-		if !generic_parse_exact_word(*remainer, separator)
+		if eat_spaces(*remainer) == 0
 		{
 			break;
 		}

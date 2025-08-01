@@ -46,12 +46,54 @@ main :: ()
 
 test_xml_parse :: ()
 {
-	print_title("XML_Elem");
-	{
+	print_title("test_xml_parse");
 
+	{
+		Object :: struct
+		{
+			id : string;
+		}
+
+		obj : Object;
+
+		print("Parsing a simple object...\n");
+		{
+			ok := parse(*g_xml_parser, *obj, "<Object id=\"unique\"></Object>");
+
+			report := make_report(*g_xml_parser);
+
+			if report.errors.count {
+				print_report(report);
+			}
+			
+			expect(ok);
+			expect(obj.id == "unique");
+
+			free(obj.id);
+		}
+
+		print("Parsing a simple object (short notation)...\n");
+		{
+			ok := parse(*g_xml_parser, *obj, "<Object id=\"unique\"/>");
+
+			report := make_report(*g_xml_parser);
+
+			if report.errors.count {
+				print_report(report);
+			}
+			
+			expect(ok);
+			expect(obj.id == "unique");
+		}
+
+		free(obj.id);
+	}
+
+	{
+		print("Parsing a struct using notes (@xml:tag=xxx)...\n");
 		Paragraph :: struct @xml:tag=p
 		{
-			color : string; @xml:attr
+			color : string;
 			text: string;
 		}
 
@@ -70,6 +112,28 @@ test_xml_parse :: ()
 
 		free(p.text);
 		free(p.color);
+	}
+
+	{
+		print("Parsing a struct having number and boolean attributes..\n");
+		Anything :: struct
+		{
+			b : bool;
+			n : float64;
+		}
+
+		anything : Anything;
+		ok := parse(*g_xml_parser, *anything, "<Anything b=\"true\" n=\"42.125\" />");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+		
+		expect(ok);
+		expect(anything.b == true);
+		expect(anything.n == 42.125);
 	}
 }
 

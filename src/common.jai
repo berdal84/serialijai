@@ -145,7 +145,7 @@ generic_parse_object :: (using parser: *Parser, tis: *Type_Info_Struct, out_data
 
 	if !parse_object_end(parser, tis, out_data)
 	{
-		return error(parser, "Unable to begin object end (type: %)\n", tprint_type(tis));
+		return error(parser, "Unable to parse object end (type: %)\n", tprint_type(tis));
 	}
 
 	return true;
@@ -538,16 +538,28 @@ generic_parse_float_T :: (out_float: *$T, in_text: *string ) -> bool
 
 generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 {
+	view : string;
+	if generic_parse_string_view(*view, in_text)
+	{
+		out_data.* = copy_string(view);
+		return true;
+	}
+	return false;
+}
+
+generic_parse_string_view :: (out_data: *string, in_text: *string) -> bool
+{
 	assert(out_data != null);
 
-	out_data.* = "";		
+	separator :: #char "\"";
+	escape    :: #char "\\";
 
 	debug_print("generic_parse_string ...\n");
 	defer debug_print("generic_parse_string (end)\n");
 
 	eat_spaces(in_text);
 
-	if !eat_char(in_text, #char "\"")
+	if !eat_char(in_text, separator)
 	{
 		return false;
 	}
@@ -559,13 +571,13 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 	while (true)
 	{
 		debug_print("generic_parse_string() - Searching double quote... %\n", string.{ data=begin, count=current_char-begin+1 } );
-		if !escape_next_char && current_char.* ==  #char "\""
+		if !escape_next_char && current_char.* ==  separator
         {
         	debug_print("generic_parse_string() - Searching double quote... FOUND at pos %\n", current_char-begin);
         	break;
         }
 		
-		escape_next_char = current_char.* == #char "\\";
+		escape_next_char = current_char.* == escape;
         
         current_char += 1;
 
@@ -576,7 +588,7 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
     }
 
     portion := slice(in_text.*, 0, current_char - begin);
-	out_data.* = copy_string(portion); // we copy because we do not want to return something pointing to our internal input_text.
+	out_data.* = portion; // we return a view, see generic_parse_string.
 
 	advance(in_text, current_char - begin + 1);
 
