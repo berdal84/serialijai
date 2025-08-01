@@ -316,12 +316,24 @@ generic_parse_array_body_T :: (
 
 generic_parse_table_T:: (using parser: *Parser, out_data: *$T/Table) -> success: bool
 {
-	return generic_parse_table(parser, type_info(T), out_data);
+	tis := type_info(T);
+
+	if !parse_object_begin(parser, tis, out_data)
+	{
+		return false;
+	}
+	
+	if !generic_parse_table_body_T(parser, out_data)
+	{
+		return false;
+	}
+
+	return parse_object_end(parser, tis, out_data);
 }
 
 generic_parse_table:: (using parser: *Parser, tis:* Type_Info_Struct, out_data: *void) -> success: bool
 {
-	if !parse_object_begin(parser)
+	if !parse_object_begin(parser, tis, out_data)
 	{
 		return false;
 	}
@@ -331,7 +343,7 @@ generic_parse_table:: (using parser: *Parser, tis:* Type_Info_Struct, out_data: 
 		return false;
 	}
 
-	return parse_object_end(parser);
+	return parse_object_end(parser, tis, out_data);
 }
 
 generic_parse_table_body:: (using parser: *Parser, info_struct: *Type_Info_Struct, out_data: *void) -> (success: bool)
