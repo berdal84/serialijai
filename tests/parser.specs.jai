@@ -135,6 +135,23 @@ test_xml_parse :: ()
 		expect(anything.b == true);
 		expect(anything.n == 42.125);
 	}
+
+	{
+		print("Parsing a struct a member to store the content of a tag\n");
+		elem : XML_Elem;
+		ok := parse(*g_xml_parser, *elem, "<root style=\"bold\"></root>");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+		
+		expect( ok );
+		style_found, style := xml_find_attr(elem, "style");
+		expect( style_found );
+		expect( style.s == "bold" );
+	}
 }
 
 //------------------------------------------------------------------------------

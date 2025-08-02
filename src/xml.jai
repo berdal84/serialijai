@@ -1,30 +1,47 @@
 
+//
+// XML_Elem
+//
 
-XML_Attr_Type :: enum
-{
-	NULL    :: 0;
-	BOOLEAN :: 1;
-	NUMBER  :: 2;
-	STRING  :: 3;
-}
-
-XML_Attr :: struct
-{
-	type: XML_Attr_Type;
-	union {
-		b    : bool;
-		n    : float64;
-		s    : string;
-		data : [8]u8;
-	};
-}
-
-XML_Elem :: struct
+XML_Elem :: struct @xml:tag=*
 {
 	tag      : string;
-	attrs    : Table(string, XML_Attr);
-	children : [..]XML_Elem;
+	attrs    : Table(string, XML_Attr); @xml:attrs
+	children : [..]XML_Elem;            @xml:children // ex: "<tag><child1></child1></tag>"
+	content  : string;                  @xml:content  // raw content, ex: "<tag>This is a raw content</tag>".
 }
+
+XML_Attr :: struct {
+	type: XML_Attr_Type;
+	union {
+		number  : float64;
+		str     : string;
+		boolean : bool;
+	}
+#place boolean;
+	b: bool = ---;
+#place number;
+	n: float64 = ---;
+#place str;
+	s: string = ---;
+}
+
+XML_Attr_Type :: enum {
+	NULL    :: 0;
+	NUMBER  :: 1;
+	STRING  :: 2;
+	BOOLEAN :: 3;
+}
+
+xml_find_attr :: (elem: XML_Elem, attr_name: string) -> ok: bool, XML_Attr
+{
+	ok, ptr := table_find_new(*elem.attrs, attr_name);
+	return ok, ptr;
+}
+
+//
+// XML Parser
+//
 
 XML_Parser :: struct
 {	
@@ -38,6 +55,8 @@ XML_Parser :: struct
 	input_text   : string; // owned
 	remainer     : string; // view over input_text's data
 	messages     : [..]Parser_Message;
+
+	tag_hierarchy_stack : [..]string;
 
 	// non-pure
 	
@@ -100,7 +119,6 @@ xml_parse_object_member :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, 
 
 	return true;
 }
-
 xml_parse_string :: (out_data: *string, in_text: *string) -> bool
 {
 	assert(out_data != null);
@@ -255,10 +273,59 @@ xml_parse_attribute_value :: (using parser: *XML_Parser, ti: *Type_Info, out_dat
 			return parse_bool(out_data, *value_as_string);
 		}
 	}
+
+	if ti == type_info(XML_Attr)
+	{
+		(cast(*XML_Attr)out_data).str = copy_string(value_as_string);
+		return true;
+	}
+
 	return error(parser, "Unhandled attribute type %\n", ti.type);	
 }
 
-xml_parse_attributes :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void ) -> bool
+xml_parse_attributes_as_table :: (using parser: *XML_Parser, table: *Table(string, XML_Attr)) -> bool
+{
+	debug_print("xml_parse_attributes_as_table ...\n");
+	defer debug_print("xml_parse_attributes_as_table (end)\n");
+
+	key_index := 0;
+	while ( remainer.count )
+	{
+		key: string;
+
+		if !xml_parse_attribute_key(*key, *remainer,, allocator=temp)
+		{
+			break;
+		}
+
+		debug_print("-- found key: '%'\n", key);
+
+		if !generic_parse_exact_word(*remainer, kv_separator)
+		{
+			return error(parser, "Expecting a keyvalue separator");
+		}
+
+		attr: XML_Attr;
+
+		if !xml_parse_attribute_value(parser, type_info(XML_Attr), *attr)
+		{
+			return error(parser, "Failed to parse %'s value (type: XML_Attr)\n", key);
+		}
+
+		table_add(table, key, attr);
+
+		if eat_spaces(*remainer) == 0
+		{
+			break;
+		}
+
+		key_index += 1;
+	}
+
+	return true;
+}
+
+xml_parse_attributes_as_struct_members :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void ) -> bool
 {
 	debug_print("xml_parse_attributes %...\n", tis.name);
 	defer debug_print("xml_parse_attributes % (end)\n", tis.name);
@@ -314,7 +381,7 @@ xml_parse_attributes :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_
 xml_get_tag_from_notes :: (tis: *Type_Info_Struct) -> string
 {
 	// look in notes
-	tag_note_prefix := "xml:tag=";
+	tag_note_prefix :: "xml:tag=";
 	for tis.notes
 	{
 		note := it;
@@ -328,24 +395,66 @@ xml_get_tag_from_notes :: (tis: *Type_Info_Struct) -> string
 	return tis.name;
 }
 
+xml_find_attrs_table :: (tis: *Type_Info_Struct, data: *void) -> *Table(string, XML_Attr)
+{
+	tag_note_prefix :: "xml:attrs";
+	for member : tis.members
+	{
+		for note : member.notes
+		{
+			if note == tag_note_prefix
+			{
+				table_ptr : *void = (cast(*u8)data) + member.offset_in_bytes;
+				return table_ptr;
+			}
+		}
+	}
+	return null;
+}
+
 xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool
 {
-	expected_tag := xml_get_tag_from_notes(tis);
+	tag := xml_get_tag_from_notes(tis);
 
-	debug_print("xml_parse_object_begin... tag=%\n", expected_tag);
-	defer debug_print("xml_parse_object_begin tag=% DONE\n", expected_tag);	
+	debug_print("xml_parse_object_begin... tag=%\n", tag);
+	defer debug_print("xml_parse_object_begin tag=% DONE\n", tag);	
 	
-	if !xml_parse_tag_open(expected_tag, *remainer)
-		return error(xx parser, "Unable to parse % tag (<%)\n", tprint_type(tis), expected_tag);
+	if tag == "*" // * is any
+	{
+		if !xml_parse_unknown_tag_open(*tag, *remainer) // TODO: tag must be the same when closing the object. We need some nested states to handle that.
+		{
+			return error(xx parser, "Unable to parse % tag (<%)\n", tprint_type(tis), tag);	
+		}
+	}
+	else if !xml_parse_tag_open(tag, *remainer)
+	{
+		return error(xx parser, "Unable to parse % tag (<%)\n", tprint_type(tis), tag);	
+	}
 
 	init_data_with_type(out_data, tis);
 
-	if !xml_parse_attributes(parser, tis, out_data)
-		return error(xx parser, "Unable to parse %'s attributes", tprint_type(tis) );
+	attr_table := xml_find_attrs_table(tis, out_data); // user can group attributes in a single field using, ex: MyStruct { attrs: Table(string, XML_Attr); @xml:attrs }
+	if attr_table != null
+	{
+		if !xml_parse_attributes_as_table(parser, attr_table)
+		{
+			return error(xx parser, "Unable to parse %'s attributes (as table)", tprint_type(tis) );
+		}
+	}
+	else
+	{
+		if !xml_parse_attributes_as_struct_members(parser, tis, out_data)
+		{
+			return error(xx parser, "Unable to parse %'s attributes", tprint_type(tis) );
+		}
+	}
+	
 
 	// optionnal in short syntax (<tag attr="val" />)
 	eat_char(*remainer, #char ">");
 
+	array_add(*tag_hierarchy_stack, tag);
+	
 	return true;
 }
 
@@ -401,9 +510,9 @@ xml_parse_unknown_tag_open :: (out_tag: *string, in_text: *string) -> bool
 	return true;
 }
 
-xml_parse_tag_open :: (expected_tag: string, in_text: *string) -> bool
+xml_parse_tag_open :: (tag: string, in_text: *string) -> bool
 {
-	expected_word := tprint("<%", expected_tag);
+	expected_word := tprint("<%", tag);
 	if !generic_parse_exact_word(in_text, expected_word)
 	{
 		return false;
@@ -412,21 +521,28 @@ xml_parse_tag_open :: (expected_tag: string, in_text: *string) -> bool
 	return true;
 }
 
-xml_parse_tag_close :: (expected_tag: string, in_text: *string) -> bool
+xml_parse_tag_close :: (tag: string, in_text: *string) -> bool
 {
-	expected_word := tprint("</%>", expected_tag);
+	expected_word := tprint("</%>", tag);
 	return generic_parse_exact_word(in_text, expected_word);
 }
 
 xml_parse_object_end :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool
 {
-	expected_tag := xml_get_tag_from_notes(tis);
+	tag := pop(*tag_hierarchy_stack);
 	
 	temp_remainer := remainer;
 	
-	if !xml_parse_tag_close(expected_tag, *temp_remainer)
-		if !generic_parse_exact_word(*temp_remainer, "/>") // short syntax <tag/>
-			return false;
+	if tag == "*"
+	{
+
+	}
+	else
+	{
+		if !xml_parse_tag_close(tag, *temp_remainer)
+			if !generic_parse_exact_word(*temp_remainer, "/>") // short syntax <tag/>
+				return false;
+	}
 
 	remainer = temp_remainer;
 
