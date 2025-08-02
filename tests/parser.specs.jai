@@ -28,7 +28,8 @@ main :: ()
 	//
 	// XML tests
 	//
-	test_xml_parse();
+	test_xml_parse__basics();
+	test_xml_parse__XML_Elem();
 
 	//
 	// End tests
@@ -43,8 +44,7 @@ main :: ()
 // XML tests
 //
 //------------------------------------------------------------------------------
-
-test_xml_parse :: ()
+test_xml_parse__basics :: ()
 {
 	print_title("test_xml_parse");
 
@@ -135,9 +135,13 @@ test_xml_parse :: ()
 		expect(anything.b == true);
 		expect(anything.n == 42.125);
 	}
+}
 
+test_xml_parse__XML_Elem :: ()
+{
+	print_title("test_xml_parse__XML_Elem");
 	{
-		print("Parsing a struct a member to store the content of a tag\n");
+		print("Parsing a generic XML_Elem\n");
 		elem : XML_Elem;
 		ok := parse(*g_xml_parser, *elem, "<root style=\"bold\"></root>");
 
@@ -151,6 +155,8 @@ test_xml_parse :: ()
 		style_found, style := xml_find_attr(elem, "style");
 		expect( style_found );
 		expect( style.s == "bold" );
+
+		xml_release(elem);
 	}
 }
 

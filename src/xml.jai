@@ -201,6 +201,32 @@ xml_release :: (parser: *XML_Parser)
 	array_reset(*parser.messages); // message's strings are allocated using temp
 }
 
+xml_release :: (attr: XML_Attr)
+{
+	if attr.type == .STRING
+	{
+		free(attr.s);
+	}
+}
+
+xml_release :: (elem: XML_Elem)
+{
+	free(elem.tag);
+	free(elem.content);
+
+	for elem.attrs.entries
+	{
+		free(it.key);
+		xml_release(it.value);
+	}
+	deinit(*elem.attrs);
+
+	for elem.children
+	{
+		xml_release(it);
+	}
+}
+
 xml_parse_separator :: (text: *string) -> bool
 {
 	return eat_spaces(text) > 0;
@@ -276,7 +302,22 @@ xml_parse_attribute_value :: (using parser: *XML_Parser, ti: *Type_Info, out_dat
 
 	if ti == type_info(XML_Attr)
 	{
-		(cast(*XML_Attr)out_data).str = copy_string(value_as_string);
+		attr := (cast(*XML_Attr)out_data);
+
+		if parse_float(type_info(float64), *attr.n, *value_as_string)
+		{
+			attr.type = .NUMBER;
+			return true;
+		}
+		if parse_bool(*attr.b, *value_as_string)
+		{
+			attr.type = .BOOLEAN;
+			return true;
+		}
+
+		attr.type = .STRING;
+		attr.str  = copy_string(value_as_string);
+
 		return true;
 	}
 
@@ -293,7 +334,7 @@ xml_parse_attributes_as_table :: (using parser: *XML_Parser, table: *Table(strin
 	{
 		key: string;
 
-		if !xml_parse_attribute_key(*key, *remainer,, allocator=temp)
+		if !xml_parse_attribute_key(*key, *remainer)
 		{
 			break;
 		}
@@ -312,7 +353,7 @@ xml_parse_attributes_as_table :: (using parser: *XML_Parser, table: *Table(strin
 			return error(parser, "Failed to parse %'s value (type: XML_Attr)\n", key);
 		}
 
-		table_add(table, key, attr);
+		table_add(table, copy_string(key), attr);
 
 		if eat_spaces(*remainer) == 0
 		{
