@@ -53,10 +53,10 @@ XML_Parser :: struct
 	kv_separator = "=";
 
 	input_text   : string; // owned
-	remainer     : string; // view over input_text's data
+	remainer     : string;
 	messages     : [..]Parser_Message;
+	context_stack : [..]XML_Context;
 
-	tag_hierarchy_stack : [..]string;
 
 	// non-pure
 	
@@ -66,9 +66,9 @@ XML_Parser :: struct
 	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return xml_parse_end(xx parser, ti, data); };
 	parse_value              = generic_parse_value;
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_begin(xx parser, tis, data); };
-	parse_object_body        = generic_parse_object_body;
+	parse_object_body        = (parser: *Parser, tis: *Type_Info_Struct, data: *void, initialize_data := true ) -> bool { return xml_parse_object_body(xx parser, tis, data, initialize_data); };
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_end(xx parser, tis, data); };	
-	parse_object_member      = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return xml_parse_object_member(xx parser, tis, data); }
+	parse_object_next_member = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return xml_parse_object_next_member(xx parser, tis, data); }
 	parse_table_body         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return generic_parse_table_body(parser, tis, data); };
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_begin(xx parser, tia, data); }
 	parse_array_body         = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return generic_parse_array_body(parser, tia, data); }
@@ -84,41 +84,177 @@ XML_Parser :: struct
 	parse_null               = generic_parse_null;     
 }
 
-xml_parse_object_member :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
+XML_Context :: struct
 {
-	key : string;
-	if !xml_parse_unknown_tag_open(*key, *remainer)
-	{
-		return false;
-	}
+	tag : string;
+	next_step  : enum {
+		PARSE_ATTRS         :: 0;
+		PARSE_BODY          :: 1;
+		EXPECTS_SHORT_CLOSE :: 2; 
+	} 
+}
 
-	member, offset_in_bytes := get_field(tis, key);
+xml_tokenize :: (using parser: XML_Parser)
+{
+	array_reset(*tokens);
 	
-	if member == null
+	cursor            = input_text;
+	token_begin       = cursor;
+
+	is_parsing_token := false;
+
+	while cursor.count > 0
 	{
-		return error(parser, "Unable to find field '%1' in struct '%2'", key, tis.name);
+		first_char := cursor.data[0];
+
+		if first_char ==
+		{
+			case #char " ";
+			case #char "\t";
+			{
+				tok: Token;
+				tok.type = .IGNORE;
+				tok.src = slice(cursor, 0, 1);
+				advance(*cursor, 1);
+			}
+
+			case #char "<";
+			{
+				tok: Token;
+				tok.type = .TAG_OPEN;
+				tok.src  = slice(cursor, 0, 1);
+				array_add(*tokens, tok);
+				advance(*cursor, 1);
+			}
+
+			case #char ">";
+			{
+				tok: Token;
+				tok.type = .TAG_CLOSE;
+				tok.src  = slice(cursor, 0, 1);
+				array_add(*tokens, tok);
+				advance(*cursor, 1);
+			}
+
+			case #char "=";
+			{
+				tok: Token;
+				tok.type = .ATTR_SEP;
+				tok.src  = slice(cursor, 0, 1);
+				array_add(*tokens, tok);
+				advance(*cursor, 1);
+			}
+
+			case #char "/";
+			{
+				if cursor.count < 2 || cursor.data[1] != ">"
+				{
+					return error(parser, "Unexpected char after /");
+				}
+				if slice(cursor, 0, 2) == "/>"
+				{
+					tok: Token;
+					tok.type = .TAG_CLOSE_SHORT;
+					tok.src  = slice(cursor, 0, 2);
+					array_add(*tokens, tok);
+					advance(*cursor, 2);
+				}
+			}
+
+			case;
+			{
+
+			}
+		}
+	}
+}
+
+xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *void, initialize_data := true) -> bool
+{
+	ctx := peek_pointer(context_stack);
+
+	if ctx.next_step != .PARSE_BODY
+	{
+		return true;
 	}
 
-	assert(offset_in_bytes >= 0, "Constants not handled, we should probably skip what's next. But no time to think about it now.");
-
-	member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
-
-	debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
-
-	init_data_with_type(member_data, member.type);
-
-	if !parse_value(parser, member.type, member_data)
+	if initialize_data
 	{
-		return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, tprint_type(member.type) );
+		if tis.initializer != null
+		{
+			tis.initializer(data);
+		}	
 	}
 
-	if !xml_parse_tag_close(key, *remainer)
+	if type_info(XML_Elem) == tis
 	{
-		return error(parser, "Expecting </%>\n");
+		content := remainer;
+		
+		debug_print("xml_parse_object_body for XML_Elem ...\n");
+
+		while remainer.count && remainer.data[0] != #char "<"
+		{
+			advance(*remainer, 1);
+		}
+
+		content.count -= remainer.count ;
+		
+		debug_print("xml_parse_object_body for XML_Elem - content: '%'\n", content);
+
+		assert(remainer.count > 0, "Unable to find char '<'\n");
+
+		elem : *XML_Elem = xx data;
+		elem.content = copy_string(content);
+
+		return true;
+	}
+
+	index := 0;
+	while ( remainer.count )
+	{
+		if !parse_object_next_member(parser, tis, data, index)
+		{
+			break;
+		}
+
+		index += 1;
 	}
 
 	return true;
 }
+
+xml_parse_object_next_member :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
+{
+	// Identify next tag, and deduce member's address and type
+
+	if !xml_parse_tag_open(parser, "*", tis=null, out_data=null )
+	{
+		return false;
+	}
+
+	ctx := peek(context_stack);
+	member, offset_in_bytes := get_field(tis, ctx.tag);
+	
+	if member == null
+	{
+		return error(parser, "Unable to find field '%1' in struct '%2'", ctx.tag, tis.name);
+	}
+
+	member_data : *void = (cast(*u8)out_data) + offset_in_bytes;
+
+	if !parse_value(parser, member.type, member_data)
+	{
+		return error(parser, "Unable to parse '%' field value\n", ctx.tag);
+	}
+
+	if !xml_parse_tag_close(parser)
+	{
+		return false;
+	}
+
+	return true;
+}
+
 xml_parse_string :: (out_data: *string, in_text: *string) -> bool
 {
 	assert(out_data != null);
@@ -238,36 +374,37 @@ xml_parse_kv_separator :: (text: *string) -> bool
 	return eat_char(text, #char "=");
 }
 
-xml_parse_attribute_key :: (out_data: *string, in_text: *string) -> bool
+xml_parse_attribute_key :: (out_data: *string, cursor: *string) -> bool
 {
 	debug_print("xml_parse_attribute_key ...\n");
 
-	eat_spaces(in_text);
+	eat_spaces(cursor);
 
-	token := in_text.*;
-	token.count = 0;
+	key := cursor.*;
 
-	while token.count < in_text.count
+	while cursor.count
 	{
-		if token.count
+		debug_print("-- cursor: '%'\n", slice(cursor.*, 0, 1) );
+
+		if !is_alpha( cursor.data[0] )
 		{
-			last_char := token.data[token.count-1];
-			if !is_alpha(last_char)
-			{
-				token.count -= 1;
-				break;
-			}
+			break;
 		}
-		token.count += 1;
+		advance(cursor, 1);
 	}
 
-	if token.count == 0
+	key.count -= cursor.count;
+
+	if key.count == 0
+	{
+		debug_print("-- key.count is zero\n");
 		return false;
+	}
 
-	debug_print("xml_parse_attribute_key -- found: \"%\"\n", token);
+	debug_print("-- found: \"%\"\n", key);
 
-	out_data.* = token;
-	advance(in_text, out_data.count);
+	out_data.* = key;
+
 	return true;
 }
 
@@ -336,6 +473,7 @@ xml_parse_attributes_as_table :: (using parser: *XML_Parser, table: *Table(strin
 
 		if !xml_parse_attribute_key(*key, *remainer)
 		{
+			debug_print("-- key NOT found\n");
 			break;
 		}
 
@@ -378,6 +516,7 @@ xml_parse_attributes_as_struct_members :: (using parser: *XML_Parser, tis: *Type
 
 		if !xml_parse_attribute_key(*key, *remainer,, allocator=temp)
 		{
+			debug_print("-- unable to parse an attribute key\n");
 			break;
 		}
 
@@ -460,51 +599,22 @@ xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, ou
 	debug_print("xml_parse_object_begin... tag=%\n", tag);
 	defer debug_print("xml_parse_object_begin tag=% DONE\n", tag);	
 	
-	if tag == "*" // * is any
-	{
-		if !xml_parse_unknown_tag_open(*tag, *remainer) // TODO: tag must be the same when closing the object. We need some nested states to handle that.
-		{
-			return error(xx parser, "Unable to parse % tag (<%)\n", tprint_type(tis), tag);	
-		}
-	}
-	else if !xml_parse_tag_open(tag, *remainer)
+	if !xml_parse_tag_open(parser, tag, tis, out_data)
 	{
 		return error(xx parser, "Unable to parse % tag (<%)\n", tprint_type(tis), tag);	
 	}
 
-	init_data_with_type(out_data, tis);
-
-	attr_table := xml_find_attrs_table(tis, out_data); // user can group attributes in a single field using, ex: MyStruct { attrs: Table(string, XML_Attr); @xml:attrs }
-	if attr_table != null
-	{
-		if !xml_parse_attributes_as_table(parser, attr_table)
-		{
-			return error(xx parser, "Unable to parse %'s attributes (as table)", tprint_type(tis) );
-		}
-	}
-	else
-	{
-		if !xml_parse_attributes_as_struct_members(parser, tis, out_data)
-		{
-			return error(xx parser, "Unable to parse %'s attributes", tprint_type(tis) );
-		}
-	}
-	
-
-	// optionnal in short syntax (<tag attr="val" />)
-	eat_char(*remainer, #char ">");
-
-	array_add(*tag_hierarchy_stack, tag);
-	
 	return true;
 }
 
-xml_parse_unknown_tag_open :: (out_tag: *string, in_text: *string) -> bool
+xml_parse_tag_open :: (using parser: *XML_Parser, tag: string, tis: *Type_Info_Struct, out_data: *void ) -> success: bool
 {
+	debug_print("xml_parse_tag_open - tag=% ..\n", tag);
+
 	//
 	// parse " <"
 	//
-	cursor : string = in_text.*;
+	cursor : string = remainer;
 	
 	if !generic_parse_exact_word(*cursor, "<")
 	{
@@ -512,82 +622,115 @@ xml_parse_unknown_tag_open :: (out_tag: *string, in_text: *string) -> bool
 	}
 
 	//
-	// parse identifier/tag
+	// parse "{tag}"
 	//
 	eat_spaces(*cursor);
 
-	if cursor.count == 0
-	{
-		return false;
-	}
+	ctx : XML_Context;
 
-	if !is_alpha(cursor.data[0])
+	if tag == "*" // any!
 	{
-		return false;
-	}
 
-	out_tag.data  = cursor.data;
-	out_tag.count = 0;
+		debug_print("-- parsing any tag...\n" );
 
-	while out_tag.count < cursor.count
-	{
-		out_tag.count += 1;
-		advance(*cursor, 1);
-		last_char := out_tag.data[out_tag.count-1];
-		if !is_alnum(last_char)
+		if !is_alpha(cursor.data[0]) // FIXME: we should not do this type of checks here, we might need to tokenize.
 		{
-			out_tag.count -= 1;
-			break;
+			return false;
+		}
+
+		ctx.tag = cursor;
+
+		while cursor.count > 0
+		{
+			if !is_alnum( cursor.data[0] )
+			{
+				break;
+			}
+			advance(*cursor, 1);
+		}	
+		ctx.tag.count -= cursor.count;
+		debug_print("-- found tag=%\n", ctx.tag );
+	}
+	else
+	{
+		debug_print("-- tag is known: %\n", tag );
+
+		if !is_alpha(tag.data[0]) // FIXME: we should not do this type of checks here, we might need to tokenize.
+		{
+			return error(parser, "Provided tag % must start with an alpha char", tag);
+		}
+
+		if !generic_parse_exact_word(*cursor, tag)
+		{
+			return false;
+		}
+		ctx.tag = tag;
+	}
+	remainer = cursor;
+
+
+	//
+	// Parse attributes
+	//
+	if out_data != null
+	{
+		debug_print("Parsing attributes ...\n");
+		init_data_with_type(out_data, tis);
+		attr_table := xml_find_attrs_table(tis, out_data); // user can group attributes in a single field using, ex: MyStruct { attrs: Table(string, XML_Attr); @xml:attrs }
+		if attr_table != null
+		{
+			debug_print("-- attribute table found\n");
+			if !xml_parse_attributes_as_table(parser, attr_table)
+			{
+				return error(xx parser, "Unable to parse %'s attributes (as table)", tprint_type(tis) );
+			}
+		}
+		else
+		{
+			debug_print("-- attribute table not found, using fields.\n");
+			if !xml_parse_attributes_as_struct_members(parser, tis, out_data)
+			{
+				return error(xx parser, "Unable to parse %'s attributes", tprint_type(tis) );
+			}
 		}
 	}
 
-	// optionnal for short notation: <tag/>
-	generic_parse_exact_word(*cursor, ">");
-
-	debug_print("xml_parse_unknown_tag_open - result: %\n", out_tag.*);
-
-	in_text.* = cursor;
-
-	return true;
-}
-
-xml_parse_tag_open :: (tag: string, in_text: *string) -> bool
-{
-	expected_word := tprint("<%", tag);
-	if !generic_parse_exact_word(in_text, expected_word)
+	if generic_parse_exact_word(*remainer, ">")
 	{
-		return false;
+		debug_print("-- found a '>', expecting a body now.\n");
+		ctx.next_step = .PARSE_BODY;
 	}
-	eat_char(in_text, #char ">"); // optionnal
+	else
+	{
+		debug_print("-- '>' not found, expecting short close '/>' now.\n");
+		ctx.next_step = .EXPECTS_SHORT_CLOSE;
+	}
+
+	array_add(*context_stack, ctx);
+
+	debug_print("xml_parse_tag_open - % OK (next_step=%, remainer='%')\n", ctx.tag, ctx.next_step, remainer);
+
 	return true;
 }
 
-xml_parse_tag_close :: (tag: string, in_text: *string) -> bool
+xml_parse_tag_close :: (using parser: *XML_Parser) -> bool
 {
-	expected_word := tprint("</%>", tag);
-	return generic_parse_exact_word(in_text, expected_word);
+	debug_print("context_stack: %\n", context_stack);
+
+	ctx := pop(*context_stack);
+	debug_print("xml_parse_tag_close - tag=% ...\n", ctx.tag);
+
+	if ctx.next_step == .EXPECTS_SHORT_CLOSE
+	{
+		return generic_parse_exact_word(*remainer, "/>");
+	}
+
+	return generic_parse_exact_word(*remainer, tprint("</%>", ctx.tag));
 }
 
 xml_parse_object_end :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool
 {
-	tag := pop(*tag_hierarchy_stack);
-	
-	temp_remainer := remainer;
-	
-	if tag == "*"
-	{
-
-	}
-	else
-	{
-		if !xml_parse_tag_close(tag, *temp_remainer)
-			if !generic_parse_exact_word(*temp_remainer, "/>") // short syntax <tag/>
-				return false;
-	}
-
-	remainer = temp_remainer;
-
-	return true;
+	return xml_parse_tag_close(parser);
 }
 
 

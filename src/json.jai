@@ -382,7 +382,7 @@ JSON_Parser :: struct
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_begin(xx parser, tis, data); };
 	parse_object_body        = generic_parse_object_body;
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_end(xx parser, tis, data); };	
-	parse_object_member      = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return json_parse_object_member(xx parser, tis, data, index); }
+	parse_object_next_member = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return json_parse_object_next_member(xx parser, tis, data, index); }
 	parse_table_body         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return generic_parse_table_body(parser, tis, data); };
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_begin(xx parser, tia, data); }
 	parse_array_body         = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return generic_parse_array_body(parser, tia, data); }
@@ -535,7 +535,7 @@ json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, l
 	return false;
 }
 
-json_parse_object_member :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool
+json_parse_object_next_member :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool
 {
 	if index > 0 && !json_parse_separator(*remainer)
 	{

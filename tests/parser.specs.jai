@@ -15,6 +15,12 @@ main :: ()
 	test_begin();
 
 	//
+	// XML tests
+	//
+	test_xml_parse__basics();
+	test_xml_parse__XML_Elem();
+
+	//
 	// JSON tests
 	//
 	test_json_parse__JSON_Any();
@@ -24,12 +30,6 @@ main :: ()
 	test_json_parse__Table();
 	test_json_parse__customization();
 	test_json_parse__file();
-
-	//
-	// XML tests
-	//
-	test_xml_parse__basics();
-	test_xml_parse__XML_Elem();
 
 	//
 	// End tests
@@ -155,6 +155,23 @@ test_xml_parse__XML_Elem :: ()
 		style_found, style := xml_find_attr(elem, "style");
 		expect( style_found );
 		expect( style.s == "bold" );
+
+		xml_release(elem);
+	}
+
+	{
+		print("Parsing a generic XML_Elem with content\n");
+		elem : XML_Elem;
+		ok := parse(*g_xml_parser, *elem, "<root>Some content</root>");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+		
+		expect( ok );
+		expect( elem.content == "Some content" );
 
 		xml_release(elem);
 	}

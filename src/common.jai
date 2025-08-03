@@ -20,7 +20,7 @@ Parser :: struct
     parse_object_begin : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
     parse_object_body  : #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool;
     parse_object_end   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
-	parse_object_member: #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool;
+	parse_object_next_member: #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool;
 	parse_table_body   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;      
 	parse_array_begin  : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
 	parse_array_body   : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
@@ -168,7 +168,7 @@ generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, dat
 	remainer := get_remainer(parser); // This is odd, I guess if we have generic_xxx procedures, we should have some generic data
 	while ( remainer.count )
 	{
-		if !parse_object_member(parser, tis, data, index)
+		if !parse_object_next_member(parser, tis, data, index)
 		{
 			break;
 		}
