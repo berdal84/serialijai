@@ -7,8 +7,8 @@ XML_Elem :: struct @xml:tag=*
 {
 	tag      : string;
 	attrs    : Table(string, XML_Attr); @xml:attrs
-	children : [..]XML_Elem;            @xml:children // ex: "<tag><child1></child1></tag>"
-	content  : string;                  @xml:content  // raw content, ex: "<tag>This is a raw content</tag>".
+	children : [..]XML_Elem;
+	value    : string; 
 }
 
 XML_Attr :: struct {
@@ -33,10 +33,16 @@ XML_Attr_Type :: enum {
 	BOOLEAN :: 3;
 }
 
-xml_find_attr :: (elem: XML_Elem, attr_name: string) -> ok: bool, XML_Attr
+xml_elem_get_attr :: (elem: XML_Elem, attr_name: string) -> XML_Attr
 {
-	ok, ptr := table_find_new(*elem.attrs, attr_name);
-	return ok, ptr;
+	pointer := xml_elem_find_attr(elem, attr_name);
+	assert(pointer!=null, "Could not find attribute '%'", attr_name);
+	return pointer.*;
+}
+
+xml_elem_find_attr :: (elem: XML_Elem, attr_name: string) -> *XML_Attr
+{
+	return table_find_pointer(*elem.attrs, attr_name);
 }
 
 //
@@ -65,10 +71,10 @@ XML_Parser :: struct
 	parse_begin              = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return xml_parse_begin(xx parser, ti, data); };
 	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return xml_parse_end(xx parser, ti, data); };
 	parse_value              = generic_parse_value;
+	parse_object             = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object(xx parser, tis, data); };
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_begin(xx parser, tis, data); };
-	parse_object_body        = (parser: *Parser, tis: *Type_Info_Struct, data: *void, initialize_data := true ) -> bool { return xml_parse_object_body(xx parser, tis, data, initialize_data); };
+	parse_object_body        = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_body(xx parser, tis, data); };
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return xml_parse_object_end(xx parser, tis, data); };	
-	parse_object_next_member = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return xml_parse_object_next_member(xx parser, tis, data); }
 	parse_table_body         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return generic_parse_table_body(parser, tis, data); };
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return xml_parse_array_begin(xx parser, tia, data); }
 	parse_array_body         = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return generic_parse_array_body(parser, tia, data); }
@@ -94,117 +100,51 @@ XML_Context :: struct
 	} 
 }
 
-xml_tokenize :: (using parser: XML_Parser)
+xml_elem_is_leaf :: (using elem: XML_Elem) -> bool
 {
-	array_reset(*tokens);
-	
-	cursor            = input_text;
-	token_begin       = cursor;
-
-	is_parsing_token := false;
-
-	while cursor.count > 0
-	{
-		first_char := cursor.data[0];
-
-		if first_char ==
-		{
-			case #char " ";
-			case #char "\t";
-			{
-				tok: Token;
-				tok.type = .IGNORE;
-				tok.src = slice(cursor, 0, 1);
-				advance(*cursor, 1);
-			}
-
-			case #char "<";
-			{
-				tok: Token;
-				tok.type = .TAG_OPEN;
-				tok.src  = slice(cursor, 0, 1);
-				array_add(*tokens, tok);
-				advance(*cursor, 1);
-			}
-
-			case #char ">";
-			{
-				tok: Token;
-				tok.type = .TAG_CLOSE;
-				tok.src  = slice(cursor, 0, 1);
-				array_add(*tokens, tok);
-				advance(*cursor, 1);
-			}
-
-			case #char "=";
-			{
-				tok: Token;
-				tok.type = .ATTR_SEP;
-				tok.src  = slice(cursor, 0, 1);
-				array_add(*tokens, tok);
-				advance(*cursor, 1);
-			}
-
-			case #char "/";
-			{
-				if cursor.count < 2 || cursor.data[1] != ">"
-				{
-					return error(parser, "Unexpected char after /");
-				}
-				if slice(cursor, 0, 2) == "/>"
-				{
-					tok: Token;
-					tok.type = .TAG_CLOSE_SHORT;
-					tok.src  = slice(cursor, 0, 2);
-					array_add(*tokens, tok);
-					advance(*cursor, 2);
-				}
-			}
-
-			case;
-			{
-
-			}
-		}
-	}
+	return attrs.count == 0
+	    && children.count == 0;
 }
 
-xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *void, initialize_data := true) -> bool
+// data must be initialized
+xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *void) -> bool
 {
-	ctx := peek_pointer(context_stack);
-
-	if ctx.next_step != .PARSE_BODY
+	if peek_pointer(context_stack).next_step != .PARSE_BODY
 	{
 		return true;
 	}
 
-	if initialize_data
-	{
-		if tis.initializer != null
-		{
-			tis.initializer(data);
-		}	
-	}
-
 	if type_info(XML_Elem) == tis
 	{
-		content := remainer;
+		//
+		// XML_Elem has the particularity to have N children stored in elem.children field
+		//
+		elem := cast(*XML_Elem)data;
 		
-		debug_print("xml_parse_object_body for XML_Elem ...\n");
-
-		while remainer.count && remainer.data[0] != #char "<"
+		// TODO: this must be a parse_array_body!
+		//       in generic_parse_array_body, a separator is involved, which does not makes sense in xml 
+		while remainer.count
 		{
-			advance(*remainer, 1);
+			new_child: XML_Elem;
+			if !parse_value(parser, type_info(XML_Elem), *new_child)
+			{
+				break;
+			}
+			array_add(*elem.children, new_child);
 		}
-
-		content.count -= remainer.count ;
 		
-		debug_print("xml_parse_object_body for XML_Elem - content: '%'\n", content);
+		// Avoid to have a single child which is a leaf
+		if elem.children.count == 1
+		{
+			child := elem.children[0];
+			if xml_elem_is_leaf(child)
+			{
+				elem.value = copy_string(child.value);
+				elem.children.count = 0;
 
-		assert(remainer.count > 0, "Unable to find char '<'\n");
-
-		elem : *XML_Elem = xx data;
-		elem.content = copy_string(content);
+				xml_release(*child);
+			}
+		}
 
 		return true;
 	}
@@ -212,44 +152,32 @@ xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, dat
 	index := 0;
 	while ( remainer.count )
 	{
-		if !parse_object_next_member(parser, tis, data, index)
+		if !xml_parse_tag_open(parser, "*", tis=null, out_data=null )
 		{
 			break;
 		}
 
+		member_tag := peek(context_stack).tag;
+		member, offset_in_bytes := get_field(tis, member_tag);
+		
+		if member == null
+		{
+			return error(parser, "Unable to find field '%1' in struct '%2'", member_tag, tis.name);
+		}
+
+		member_data : *void = (cast(*u8)data) + offset_in_bytes;
+
+		if !parse_value(parser, member.type, member_data)
+		{
+			return error(parser, "Unable to parse '%' field value\n", member_tag);
+		}
+
+		if !xml_parse_tag_close(parser)
+		{
+			return error(parser, "Unable to parse close tag '%'\n", member_tag);
+		}
+
 		index += 1;
-	}
-
-	return true;
-}
-
-xml_parse_object_next_member :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
-{
-	// Identify next tag, and deduce member's address and type
-
-	if !xml_parse_tag_open(parser, "*", tis=null, out_data=null )
-	{
-		return false;
-	}
-
-	ctx := peek(context_stack);
-	member, offset_in_bytes := get_field(tis, ctx.tag);
-	
-	if member == null
-	{
-		return error(parser, "Unable to find field '%1' in struct '%2'", ctx.tag, tis.name);
-	}
-
-	member_data : *void = (cast(*u8)out_data) + offset_in_bytes;
-
-	if !parse_value(parser, member.type, member_data)
-	{
-		return error(parser, "Unable to parse '%' field value\n", ctx.tag);
-	}
-
-	if !xml_parse_tag_close(parser)
-	{
-		return false;
 	}
 
 	return true;
@@ -348,7 +276,6 @@ xml_release :: (attr: XML_Attr)
 xml_release :: (elem: XML_Elem)
 {
 	free(elem.tag);
-	free(elem.content);
 
 	for elem.attrs.entries
 	{
@@ -357,10 +284,11 @@ xml_release :: (elem: XML_Elem)
 	}
 	deinit(*elem.attrs);
 
+
+	free(elem.value);
 	for elem.children
-	{
 		xml_release(it);
-	}
+	array_reset(*elem.children);
 }
 
 xml_parse_separator :: (text: *string) -> bool
@@ -601,7 +529,7 @@ xml_parse_object_begin :: (using parser: *XML_Parser, tis: *Type_Info_Struct, ou
 	
 	if !xml_parse_tag_open(parser, tag, tis, out_data)
 	{
-		return error(xx parser, "Unable to parse % tag (<%)\n", tprint_type(tis), tag);	
+		return false;
 	}
 
 	return true;
@@ -706,6 +634,13 @@ xml_parse_tag_open :: (using parser: *XML_Parser, tag: string, tis: *Type_Info_S
 		ctx.next_step = .EXPECTS_SHORT_CLOSE;
 	}
 
+	// TODO: this could be generalized using @xml:tag note on a field
+	if out_data != null && tis == type_info(XML_Elem)
+	{
+		elem := cast(*XML_Elem)out_data;
+		elem.tag = copy_string(ctx.tag);
+	}
+
 	array_add(*context_stack, ctx);
 
 	debug_print("xml_parse_tag_open - % OK (next_step=%, remainer='%')\n", ctx.tag, ctx.next_step, remainer);
@@ -726,6 +661,76 @@ xml_parse_tag_close :: (using parser: *XML_Parser) -> bool
 	}
 
 	return generic_parse_exact_word(*remainer, tprint("</%>", ctx.tag));
+}
+
+xml_parse_XML_Elem_as_text ::(using parser: *XML_Parser, data: *string) -> bool
+{
+	debug_print("xml_parse_XML_Elem_as_text ...\n");
+
+	text := remainer;
+
+	while remainer.count
+	{
+		if remainer.data[0] == #char "<"
+		{
+			debug_print("-- Character '<' detected, text end\n");
+			break;
+		}
+		advance(*remainer, 1);
+	}
+
+	text.count -= remainer.count;
+
+	if text.count == 0
+	{
+		return false;
+	}
+
+	data.* = copy_string(text);
+
+	debug_print("xml_parse_XML_Elem_as_text - result: '%'\n", data.* );
+
+	return true;
+}
+
+xml_parse_object :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *void) -> bool
+{
+	// Some XML_Elem child may be pure text data
+	if tis == type_info(XML_Elem)
+	{
+		elem := cast(*XML_Elem)data;
+		if xml_parse_XML_Elem_as_text(parser, *elem.value)
+		{
+			return true;
+		}
+	}
+
+	if !parse_object_begin(parser, tis, data)
+	{
+		return false;
+	}
+
+	if tis.name == "Table"
+	{
+		if !parse_table_body(parser, tis, data)
+		{
+			return error(parser, "Unable to parse table body (type: %)\n", tprint_type(tis));
+		}
+	}
+	else
+	{
+		if !parse_object_body(parser, tis, data)
+		{
+			return error(parser, "Unable to parse object body (type: %)\n", tprint_type(tis));
+		}
+	}
+
+	if !parse_object_end(parser, tis, data)
+	{
+		return error(parser, "Unable to parse object end (type: %)\n", tprint_type(tis));
+	}
+
+	return true;
 }
 
 xml_parse_object_end :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool

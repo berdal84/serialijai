@@ -2,7 +2,7 @@
 
 DEBUG_MEMORY             :: true;  // check for mem leaks (Basic module)
 DEBUG_SERIALISER         :: true; // enable detailed messages in serializer
-ASSERT_WHEN_EXPECT_FAILS :: false; // fail as soon as an expectation failed
+ASSERT_WHEN_EXPECT_FAILS :: true; // fail as soon as an expectation failed
 
 g_json_parser : JSON_Parser;
 g_xml_parser : XML_Parser;
@@ -152,9 +152,8 @@ test_xml_parse__XML_Elem :: ()
 		}
 		
 		expect( ok );
-		style_found, style := xml_find_attr(elem, "style");
-		expect( style_found );
-		expect( style.s == "bold" );
+		style := xml_elem_find_attr(elem, "style");
+		expect( style != null && style.str == "bold" );
 
 		xml_release(elem);
 	}
@@ -171,7 +170,48 @@ test_xml_parse__XML_Elem :: ()
 		}
 		
 		expect( ok );
-		expect( elem.content == "Some content" );
+		expect( elem.value == "Some content" );
+
+		xml_release(elem);
+	}
+
+	{
+		print("Parsing a generic XML_Elem with content and attrs\n");
+		elem : XML_Elem;
+		ok := parse(*g_xml_parser, *elem, "<p style=\"bold\">Some content</p>");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+		
+		expect( ok );
+		attr := xml_elem_find_attr(elem, "style");
+		expect( attr && attr.str == "bold" );
+		expect( elem.value == "Some content" );
+
+		xml_release(elem);
+	}
+
+	{
+		print("Parsing a generic XML_Elem with multiple children\n");
+		elem : XML_Elem;
+		ok := parse(*g_xml_parser, *elem, "<p>I <span>am</span> here.</p>");
+
+		report := make_report(*g_xml_parser);
+
+		if report.errors.count {
+			print_report(report);
+		}
+		
+		expect( ok );
+		expect( elem.tag == "p" );
+		expect( elem.children.count == 3 );
+		expect( elem.children[0].value == "I " );
+		expect( elem.children[1].tag   == "span" );
+		expect( elem.children[1].value == "am" );
+		expect( elem.children[2].value == " here." );
 
 		xml_release(elem);
 	}

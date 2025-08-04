@@ -379,10 +379,10 @@ JSON_Parser :: struct
 	parse_begin              = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_begin(xx parser, ti, data); };
 	parse_end                = (parser: *Parser, ti: *Type_Info, data: *void) -> bool { return json_parse_end(xx parser, ti, data); };
 	parse_value              = generic_parse_value;
+	parse_object             = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object(xx parser, tis, data); };
 	parse_object_begin       = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_begin(xx parser, tis, data); };
-	parse_object_body        = generic_parse_object_body;
+	parse_object_body        = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_body(xx parser, tis, data); };
 	parse_object_end         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return json_parse_object_end(xx parser, tis, data); };	
-	parse_object_next_member = (parser: *Parser, tis: *Type_Info_Struct, data: *void, index: s64) -> bool { return json_parse_object_next_member(xx parser, tis, data, index); }
 	parse_table_body         = (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool { return generic_parse_table_body(parser, tis, data); };
 	parse_array_begin        = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return json_parse_array_begin(xx parser, tia, data); }
 	parse_array_body         = (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool { return generic_parse_array_body(parser, tia, data); }
@@ -463,6 +463,97 @@ json_parse_object_begin :: (parser: *JSON_Parser, tis: *Type_Info_Struct, out_da
 	return eat_char(*parser.remainer, #char "{");
 }
 
+json_parse_object :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
+{
+	if tis == type_info(JSON_Any)
+	{
+		return json_parse_JSON_Any(parser, out_data);
+	}
+
+	if !parse_object_begin(parser, tis, out_data)
+	{
+		return error(parser, "Unable to parse object begin (type: %)\n", tprint_type(tis));
+	}
+
+	if tis.name == "Table"
+	{
+		if !parse_table_body(parser, tis, out_data)
+		{
+			return error(parser, "Unable to parse table body (type: %)\n", tprint_type(tis));
+		}
+	}
+	else
+	{
+		if !parse_object_body(parser, tis, out_data)
+		{
+			return error(parser, "Unable to parse object body (type: %)\n", tprint_type(tis));
+		}
+	}
+
+	if !parse_object_end(parser, tis, out_data)
+	{
+		return error(parser, "Unable to parse object end (type: %)\n", tprint_type(tis));
+	}
+
+	return true;
+}
+
+json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool
+{
+	debug_print("json_parse_object_body %...\n", tis.name);
+	defer debug_print("json_parse_object_body % (end)\n", tis.name);
+
+	if tis.initializer != null
+	{
+		tis.initializer(data);
+	}	
+
+	index := 0;
+	while ( remainer.count )
+	{
+		if index > 0 && !json_parse_separator(*remainer)
+		{
+			debug_print("Expecting a separator after key #%\n", index);
+			break;
+		}
+
+		key: string;
+		if !parse_string(*key, *remainer,, allocator=temp)
+		{
+			break;
+		}
+
+		if !generic_parse_exact_word(*remainer, ":")
+		{
+			return error(parser, "Expecting a keyvalue separator");
+		}
+
+		member, offset_in_bytes := get_field(tis, key);
+		
+		if member == null
+		{
+			return error(parser, "Unable to find field '%1' in struct '%2'", key, tis.name);
+		}
+
+		assert(offset_in_bytes >= 0, "Constants not handled, we should probably skip what's next. But no time to think about it now.");
+
+		member_data: *void = (cast(*u8)data) + offset_in_bytes;
+
+		debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
+
+		init_data_with_type(member_data, member.type);
+
+		if !parse_value(parser, member.type, member_data)
+		{
+			return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
+		}
+
+		index += 1;
+	}
+
+	return true;
+}
+
 json_parse_object_end :: (parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool
 {
 	eat_spaces(*parser.remainer);
@@ -535,44 +626,50 @@ json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, l
 	return false;
 }
 
-json_parse_object_next_member :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool
+json_parse_JSON_Any :: (using parser: *Parser, out_data: *JSON_Any) -> success: bool
 {
-	if index > 0 && !json_parse_separator(*remainer)
+	out_data.* = .{};
+
+	remainer := get_remainer(parser);
+
+	if parse_null(remainer)
 	{
-		debug_print("Expecting a separator after key #%\n", index);
-		return false;
+		out_data.type = .NULL;
+		return true;
 	}
 
-	key: string;
-	if !parse_string(*key, *remainer,, allocator=temp)
+	if parse_bool(*out_data.boolean, remainer)
 	{
-		return false;
+		out_data.type = .BOOLEAN;
+		return true;
 	}
 
-	if !generic_parse_exact_word(*remainer, ":")
+	if parse_float(type_info(float64), xx *out_data.number, remainer)
 	{
-		return error(parser, "Expecting a keyvalue separator");
+		out_data.type = .NUMBER;
+		return true;
 	}
 
-	member, offset_in_bytes := get_field(tis, key);
-	
-	if member == null
+	if parse_string(*out_data.str, remainer)
 	{
-		return error(parser, "Unable to find field '%1' in struct '%2'", key, tis.name);
+		out_data.type = .STRING;
+		return true;
 	}
 
-	assert(offset_in_bytes >= 0, "Constants not handled, we should probably skip what's next. But no time to think about it now.");
-
-	member_data: *void = (cast(*u8)out_data) + offset_in_bytes;
-
-	debug_print("parsing struct member %.% (%)...\n", tis.name, key, member.type.*);
-
-	init_data_with_type(member_data, member.type);
-
-	if !parse_value(parser, member.type, member_data)
+	if generic_parse_array(parser, type_info([..]JSON_Any), *out_data.array)
 	{
-		return error(parser, "Failed to parse %1's value (type: %2)\n", member.name, member.type.type);
+		out_data.type = .ARRAY;
+		return true;
 	}
 
-	return true;
+	temp_object : JSON_Object;
+	if parse_object(parser, type_info(JSON_Object), *temp_object)
+	{
+		out_data.type     = .OBJECT;
+		out_data.object   = New(JSON_Object,, allocator=temp); // FIXME: this should not be temp since we give the result to the user.
+		out_data.object.* = temp_object; 
+		return true;
+	}
+
+	return error(parser, "Unable to parse JSON_Any");
 }

@@ -17,10 +17,10 @@ Parser :: struct
 	parse_value        : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
 	parse_begin        : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
     parse_end          : #type (parser: *Parser, ti: *Type_Info, data: *void) -> bool;
+    parse_object       : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
     parse_object_begin : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
-    parse_object_body  : #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, initialize_data := true ) -> bool;
+    parse_object_body  : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
     parse_object_end   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;
-	parse_object_next_member: #type (parser: *Parser, tis: *Type_Info_Struct, out_data: *void, index: s64) -> bool;
 	parse_table_body   : #type (parser: *Parser, tis: *Type_Info_Struct, data: *void) -> bool;      
 	parse_array_begin  : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
 	parse_array_body   : #type (parser: *Parser, tia: *Type_Info_Array, data: *void) -> bool;
@@ -96,7 +96,7 @@ generic_parse_value :: (using parser: *Parser, ti: *Type_Info, out_data: *void) 
 	    case .BOOL;    return parse_bool(xx out_data, remainer);
 	    case .STRING;  return parse_string(xx out_data, remainer );
 	    case .ARRAY;   return generic_parse_array(parser, xx ti, out_data);
-	    case .STRUCT;  return generic_parse_object(parser, xx ti, out_data);
+	    case .STRUCT;  return parse_object(parser, xx ti, out_data);
 
 	    // case .POINTER;
 	    // case .PROCEDURE;
@@ -113,72 +113,6 @@ generic_parse_value :: (using parser: *Parser, ti: *Type_Info, out_data: *void) 
 	    case; return error(parser, "Unhandled type: %", tprint_type(ti) );
 	}
 }
-
-generic_parse_object :: (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
-{
-	if tis == type_info(JSON_Any)
-	{
-		// It might seems bizarre to have JSON_Any here, but after all we may want to save/load it from a format that is not JSON.
-		return generic_parse_JSON_Any(parser, out_data);
-	}
-
-
-	if !parse_object_begin(parser, tis, out_data)
-	{
-		return error(parser, "Unable to parse object begin (type: %)\n", tprint_type(tis));
-	}
-
-	if tis.name == "Table"
-	{
-		if !parse_table_body(parser, tis, out_data)
-		{
-			return error(parser, "Unable to parse table body (type: %)\n", tprint_type(tis));
-		}
-	}
-	else
-	{
-		if !parse_object_body(parser, tis, out_data)
-		{
-			return error(parser, "Unable to parse object body (type: %)\n", tprint_type(tis));
-		}
-	}
-
-	if !parse_object_end(parser, tis, out_data)
-	{
-		return error(parser, "Unable to parse object end (type: %)\n", tprint_type(tis));
-	}
-
-	return true;
-}
-
-generic_parse_object_body :: (using parser: *Parser, tis: *Type_Info_Struct, data: *void, initialize_data := true ) -> bool
-{
-	debug_print("generic_parse_object_body %...\n", tis.name);
-	defer debug_print("generic_parse_object_body % (end)\n", tis.name);
-
-	if initialize_data
-	{
-		if tis.initializer != null
-		{
-			tis.initializer(data);
-		}	
-	}
-
-	index := 0;
-	remainer := get_remainer(parser); // This is odd, I guess if we have generic_xxx procedures, we should have some generic data
-	while ( remainer.count )
-	{
-		if !parse_object_next_member(parser, tis, data, index)
-		{
-			break;
-		}
-		index += 1;
-	}
-
-	return true;
-}
-
-
 
 generic_parse_array :: (using parser: *Parser, tia: *Type_Info_Array, out_data: *void) -> bool
 {
@@ -231,9 +165,9 @@ generic_parse_array_body_T :: (
 			}
 		}
 
-		ate_comma := next_id && generic_parse_exact_word(remainer, separator);
+		ate_separator := next_id && generic_parse_exact_word(remainer, separator);
 		
-		if next_id && !ate_comma
+		if next_id && !ate_separator
 		{
 			debug_print("-- no more elements to parse (next_id: %)\n", next_id);
 			break;
@@ -277,7 +211,7 @@ generic_parse_array_body_T :: (
 		{
 			remainer.* = remainer_backup.*;
 
-			if ate_comma
+			if ate_separator
 				return error(parser, remainer.*, "Expecting value");
 			break;
 		}
@@ -426,54 +360,6 @@ generic_parse_bool :: (out_data: *bool, in_text: *string) -> success: bool
 	}
 
 	return false;
-}
-
-generic_parse_JSON_Any :: (using parser: *Parser, out_data: *JSON_Any) -> success: bool
-{
-	out_data.* = .{};
-
-	remainer := get_remainer(parser);
-
-	if parse_null(remainer)
-	{
-		out_data.type = .NULL;
-		return true;
-	}
-
-	if parse_bool(*out_data.boolean, remainer)
-	{
-		out_data.type = .BOOLEAN;
-		return true;
-	}
-
-	if parse_float(type_info(float64), xx *out_data.number, remainer)
-	{
-		out_data.type = .NUMBER;
-		return true;
-	}
-
-	if parse_string(*out_data.str, remainer)
-	{
-		out_data.type = .STRING;
-		return true;
-	}
-
-	if generic_parse_array(parser, type_info([..]JSON_Any), *out_data.array)
-	{
-		out_data.type = .ARRAY;
-		return true;
-	}
-
-	temp_object : JSON_Object;
-	if generic_parse_object(parser, type_info(JSON_Object), *temp_object)
-	{
-		out_data.type     = .OBJECT;
-		out_data.object   = New(JSON_Object,, allocator=temp); // FIXME: this should not be temp since we give the result to the user.
-		out_data.object.* = temp_object; 
-		return true;
-	}
-
-	return error(parser, "Unable to parse JSON_Any");
 }
 
 generic_parse_integer :: (info_integer: *Type_Info_Integer, out_data: *void, in_text: *string) -> success: bool
