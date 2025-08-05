@@ -208,9 +208,11 @@ test_xml_parse__XML_Elem :: ()
 		expect( ok );
 		expect( elem.tag == "p" );
 		expect( elem.children.count == 3 );
+		expect( elem.children[0].tag   == "" );
 		expect( elem.children[0].value == "I " );
 		expect( elem.children[1].tag   == "span" );
 		expect( elem.children[1].value == "am" );
+		expect( elem.children[2].tag   == "" );
 		expect( elem.children[2].value == " here." );
 
 		xml_release(elem);
