@@ -470,32 +470,7 @@ json_parse_object :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, out_da
 		return json_parse_JSON_Any(parser, out_data);
 	}
 
-	if !parse_object_begin(parser, tis, out_data)
-	{
-		return error(parser, "Unable to parse object begin (type: %)\n", tprint_type(tis));
-	}
-
-	if tis.name == "Table"
-	{
-		if !parse_table_body(parser, tis, out_data)
-		{
-			return error(parser, "Unable to parse table body (type: %)\n", tprint_type(tis));
-		}
-	}
-	else
-	{
-		if !parse_object_body(parser, tis, out_data)
-		{
-			return error(parser, "Unable to parse object body (type: %)\n", tprint_type(tis));
-		}
-	}
-
-	if !parse_object_end(parser, tis, out_data)
-	{
-		return error(parser, "Unable to parse object end (type: %)\n", tprint_type(tis));
-	}
-
-	return true;
+	return generic_parse_object(parser, tis, out_data);
 }
 
 json_parse_object_body :: (using parser: *JSON_Parser, tis: *Type_Info_Struct, data: *void) -> bool
@@ -626,31 +601,29 @@ json_error :: (using parser: *JSON_Parser, string_format: string, args: ..Any, l
 	return false;
 }
 
-json_parse_JSON_Any :: (using parser: *Parser, out_data: *JSON_Any) -> success: bool
+json_parse_JSON_Any :: (using parser: *JSON_Parser, out_data: *JSON_Any) -> success: bool
 {
 	out_data.* = .{};
 
-	remainer := get_remainer(parser);
-
-	if parse_null(remainer)
+	if parse_null(*remainer)
 	{
 		out_data.type = .NULL;
 		return true;
 	}
 
-	if parse_bool(*out_data.boolean, remainer)
+	if parse_bool(*out_data.boolean, *remainer)
 	{
 		out_data.type = .BOOLEAN;
 		return true;
 	}
 
-	if parse_float(type_info(float64), xx *out_data.number, remainer)
+	if parse_float(type_info(float64), xx *out_data.number, *remainer)
 	{
 		out_data.type = .NUMBER;
 		return true;
 	}
 
-	if parse_string(*out_data.str, remainer)
+	if parse_string(*out_data.str, *remainer)
 	{
 		out_data.type = .STRING;
 		return true;

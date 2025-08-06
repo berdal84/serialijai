@@ -705,32 +705,7 @@ xml_parse_object :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *v
 		}
 	}
 
-	if !parse_object_begin(parser, tis, data)
-	{
-		return false;
-	}
-
-	if tis.name == "Table"
-	{
-		if !parse_table_body(parser, tis, data)
-		{
-			return error(parser, "Unable to parse table body (type: %)\n", tprint_type(tis));
-		}
-	}
-	else
-	{
-		if !parse_object_body(parser, tis, data)
-		{
-			return error(parser, "Unable to parse object body (type: %)\n", tprint_type(tis));
-		}
-	}
-
-	if !parse_object_end(parser, tis, data)
-	{
-		return error(parser, "Unable to parse object end (type: %)\n", tprint_type(tis));
-	}
-
-	return true;
+	return generic_parse_object(parser, tis, data);
 }
 
 xml_parse_object_end :: (using parser: *XML_Parser, tis: *Type_Info_Struct, out_data: *void) -> success : bool

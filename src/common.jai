@@ -82,6 +82,37 @@ generic_parse :: (using parser: *Parser, ti: *Type_Info, out_data: *void, input:
 	return true;
 }
 
+generic_parse_object :: (using parser: *Parser, tis: *Type_Info_Struct, out_data: *void) -> bool
+{
+	if !parse_object_begin(parser, tis, out_data)
+	{
+		return error(parser, "Unable to parse object begin (type: %)\n", tprint_type(tis));
+	}
+
+	if tis.name == "Table"
+	{
+		if !parse_table_body(parser, tis, out_data)
+		{
+			return error(parser, "Unable to parse table body (type: %)\n", tprint_type(tis));
+		}
+	}
+	else
+	{
+		if !parse_object_body(parser, tis, out_data)
+		{
+			return error(parser, "Unable to parse object body (type: %)\n", tprint_type(tis));
+		}
+	}
+
+	if !parse_object_end(parser, tis, out_data)
+	{
+		return error(parser, "Unable to parse object end (type: %)\n", tprint_type(tis));
+	}
+
+	return true;
+}
+
+
 generic_parse_value :: (using parser: *Parser, ti: *Type_Info, out_data: *void) -> success: bool
 {
 	debug_print("generic_parse_value (%) ...\n", tprint_type(ti));
