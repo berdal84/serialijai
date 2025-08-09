@@ -3,12 +3,22 @@
 // XML_Elem
 //
 
+
 XML_Elem :: struct @xml:tag=*
 {
+	type     : XML_Elem_Type;
 	tag      : string;
 	attrs    : Table(string, XML_Attr); @xml:attrs
-	children : [..]XML_Elem;
-	value    : string; 
+	union {
+		children : [..]XML_Elem;
+		text     : string;
+	}
+}
+
+XML_Elem_Type :: enum 
+{
+	NODE :: 0;
+	LEAF :: 1;
 }
 
 XML_Attr :: struct {
@@ -100,12 +110,6 @@ XML_Context :: struct
 	} 
 }
 
-xml_elem_is_leaf :: (using elem: XML_Elem) -> bool
-{
-	return attrs.count == 0
-	    && children.count == 0;
-}
-
 // data must be initialized
 xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *void) -> bool
 {
@@ -133,16 +137,21 @@ xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, dat
 			array_add(*elem.children, new_child);
 		}
 		
-		// Avoid to have a single child which is a leaf
-		if elem.children.count == 1
+		// Avoid to have a single child which is a text
+		if elem.type == .NODE && elem.children.count == 1
 		{
 			child := elem.children[0];
-			if xml_elem_is_leaf(child)
+			if child.type == .LEAF
 			{
-				elem.value = copy_string(child.value);
-				elem.children.count = 0;
-
+				text := copy_string(child.text);
+				
 				xml_release(*child);
+
+				array_reset(*elem.children);
+
+				elem.type = .LEAF;
+				elem.text = text;
+
 			}
 		}
 
@@ -284,10 +293,16 @@ xml_release :: (elem: XML_Elem)
 	}
 	deinit(*elem.attrs);
 
+	if ( elem.type == .LEAF)
+	{	
+		free(elem.text);
+		return;
+	}
 
-	free(elem.value);
 	for elem.children
+	{
 		xml_release(it);
+	}
 	array_reset(*elem.children);
 }
 
@@ -505,18 +520,31 @@ xml_get_tag_from_notes :: (tis: *Type_Info_Struct) -> string
 
 xml_find_attrs_table :: (tis: *Type_Info_Struct, data: *void) -> *Table(string, XML_Attr)
 {
-	tag_note_prefix :: "xml:attrs";
+	if type_info(XML_Elem) == tis
+	{
+		return *(cast(*XML_Elem)data).attrs;
+	}
+
+	match : bool;
+
 	for member : tis.members
 	{
 		for note : member.notes
 		{
-			if note == tag_note_prefix
+			if note == "xml:attrs"
 			{
-				table_ptr : *void = (cast(*u8)data) + member.offset_in_bytes;
-				return table_ptr;
+				match = true;
+				break;
 			}
 		}
+
+		if match
+		{
+			table_ptr : *void = (cast(*u8)data) + member.offset_in_bytes;
+			return table_ptr;
+		}
 	}
+
 	return null;
 }
 
@@ -639,6 +667,7 @@ xml_parse_tag_open :: (using parser: *XML_Parser, tag: string, tis: *Type_Info_S
 	{
 		elem := cast(*XML_Elem)out_data;
 		elem.tag = copy_string(ctx.tag);
+		debug_print("XML_Elem.tag assigned to %\n", elem.tag);
 	}
 
 	array_add(*context_stack, ctx);
@@ -663,7 +692,7 @@ xml_parse_tag_close :: (using parser: *XML_Parser) -> bool
 	return generic_parse_exact_word(*remainer, tprint("</%>", ctx.tag));
 }
 
-xml_parse_XML_Elem_as_text ::(using parser: *XML_Parser, data: *string) -> bool
+xml_parse_XML_Elem_as_text ::(using parser: *XML_Parser, elem: *XML_Elem) -> bool
 {
 	debug_print("xml_parse_XML_Elem_as_text ...\n");
 
@@ -676,19 +705,22 @@ xml_parse_XML_Elem_as_text ::(using parser: *XML_Parser, data: *string) -> bool
 			debug_print("-- Character '<' detected, text end\n");
 			break;
 		}
+		debug_print("-- cursor: %\n", slice(remainer, 0, 1) );
 		advance(*remainer, 1);
 	}
 
-	text.count -= remainer.count;
+	text.count = remainer.data - text.data;
 
 	if text.count == 0
 	{
 		return false;
 	}
 
-	data.* = copy_string(text);
+	elem.text = copy_string(text);
+	elem.type = .LEAF;
 
-	debug_print("xml_parse_XML_Elem_as_text - result: '%'\n", data.* );
+	debug_print("xml_parse_XML_Elem_as_text - result: '%'\n", elem.text );
+
 
 	return true;
 }
@@ -699,8 +731,9 @@ xml_parse_object :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *v
 	if tis == type_info(XML_Elem)
 	{
 		elem := cast(*XML_Elem)data;
-		if xml_parse_XML_Elem_as_text(parser, *elem.value)
+		if xml_parse_XML_Elem_as_text(parser, elem)
 		{
+			debug_print("text: %\n", elem.text);
 			return true;
 		}
 	}

@@ -86,7 +86,7 @@ generic_parse_object :: (using parser: *Parser, tis: *Type_Info_Struct, out_data
 {
 	if !parse_object_begin(parser, tis, out_data)
 	{
-		return error(parser, "Unable to parse object begin (type: %)\n", tprint_type(tis));
+		return false;
 	}
 
 	if tis.name == "Table"

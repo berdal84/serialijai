@@ -152,6 +152,7 @@ test_xml_parse__XML_Elem :: ()
 		}
 		
 		expect( ok );
+		expect( elem.attrs.count == 1);
 		style := xml_elem_find_attr(elem, "style");
 		expect( style != null && style.str == "bold" );
 
@@ -170,7 +171,7 @@ test_xml_parse__XML_Elem :: ()
 		}
 		
 		expect( ok );
-		expect( elem.value == "Some content" );
+		expect( elem.text == "Some content" );
 
 		xml_release(elem);
 	}
@@ -189,7 +190,7 @@ test_xml_parse__XML_Elem :: ()
 		expect( ok );
 		attr := xml_elem_find_attr(elem, "style");
 		expect( attr && attr.str == "bold" );
-		expect( elem.value == "Some content" );
+		expect( elem.text == "Some content" );
 
 		xml_release(elem);
 	}
@@ -208,12 +209,10 @@ test_xml_parse__XML_Elem :: ()
 		expect( ok );
 		expect( elem.tag == "p" );
 		expect( elem.children.count == 3 );
-		expect( elem.children[0].tag   == "" );
-		expect( elem.children[0].value == "I " );
-		expect( elem.children[1].tag   == "span" );
-		expect( elem.children[1].value == "am" );
-		expect( elem.children[2].tag   == "" );
-		expect( elem.children[2].value == " here." );
+		expect( elem.children[0].text == "I " );
+		expect( elem.children[1].tag  == "span" );
+		expect( elem.children[1].text == "am" );
+		expect( elem.children[2].text == " here." );
 
 		xml_release(elem);
 	}
