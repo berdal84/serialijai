@@ -6,19 +6,10 @@
 
 XML_Elem :: struct @xml:tag=*
 {
-	type     : XML_Elem_Type;
 	tag      : string;
 	attrs    : Table(string, XML_Attr); @xml:attrs
-	union {
-		children : [..]XML_Elem;
-		text     : string;
-	}
-}
-
-XML_Elem_Type :: enum 
-{
-	NODE :: 0;
-	LEAF :: 1;
+	children : [..]XML_Elem;
+	text     : string;
 }
 
 XML_Attr :: struct {
@@ -102,18 +93,14 @@ XML_Parser :: struct
 
 XML_Context :: struct
 {
-	tag : string;
-	next_step  : enum {
-		PARSE_ATTRS         :: 0;
-		PARSE_BODY          :: 1;
-		EXPECTS_SHORT_CLOSE :: 2; 
-	} 
+	tag     : string;
+	no_body : bool; 
 }
 
 // data must be initialized
 xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *void) -> bool
 {
-	if peek_pointer(context_stack).next_step != .PARSE_BODY
+	if peek_pointer(context_stack).no_body
 	{
 		return true;
 	}
@@ -137,21 +124,22 @@ xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, dat
 			array_add(*elem.children, new_child);
 		}
 		
-		// Avoid to have a single child which is a text
-		if elem.type == .NODE && elem.children.count == 1
+		// only child: when it is holding text only, we transfer its text to the parent
+		if elem.children.count == 1
 		{
-			child := elem.children[0];
-			if child.type == .LEAF
+			only_child := elem.children[0];
+
+			elem_holds_text_only := only_child.children.count == 0
+								 && only_child.tag.count == 0
+								 && only_child.attrs.count == 0;
+
+			if elem_holds_text_only
 			{
-				text := copy_string(child.text);
+				elem.text = copy_string(only_child.text);
 				
-				xml_release(*child);
+				xml_release(*only_child);
 
-				array_reset(*elem.children);
-
-				elem.type = .LEAF;
-				elem.text = text;
-
+				elem.children.count = 0;
 			}
 		}
 
@@ -266,6 +254,12 @@ xml_reset :: (using parser : *XML_Parser, source: string) -> bool
 	return true;
 }
 
+xml_shutdown :: (using parser: *XML_Parser)
+{
+	free(input_text);
+	array_reset(*messages);
+}
+
 xml_release :: (parser: *XML_Parser)
 {
 	free(parser.input_text); // was copied, see JSON_init_parser(...)
@@ -293,11 +287,7 @@ xml_release :: (elem: XML_Elem)
 	}
 	deinit(*elem.attrs);
 
-	if ( elem.type == .LEAF)
-	{	
-		free(elem.text);
-		return;
-	}
+	free(elem.text);
 
 	for elem.children
 	{
@@ -654,12 +644,11 @@ xml_parse_tag_open :: (using parser: *XML_Parser, tag: string, tis: *Type_Info_S
 	if generic_parse_exact_word(*remainer, ">")
 	{
 		debug_print("-- found a '>', expecting a body now.\n");
-		ctx.next_step = .PARSE_BODY;
 	}
 	else
 	{
 		debug_print("-- '>' not found, expecting short close '/>' now.\n");
-		ctx.next_step = .EXPECTS_SHORT_CLOSE;
+		ctx.no_body = true;
 	}
 
 	// TODO: this could be generalized using @xml:tag note on a field
@@ -672,7 +661,7 @@ xml_parse_tag_open :: (using parser: *XML_Parser, tag: string, tis: *Type_Info_S
 
 	array_add(*context_stack, ctx);
 
-	debug_print("xml_parse_tag_open - % OK (next_step=%, remainer='%')\n", ctx.tag, ctx.next_step, remainer);
+	debug_print("xml_parse_tag_open - % OK (no_body=%, remainer='%')\n", ctx.tag, ctx.no_body, remainer);
 
 	return true;
 }
@@ -684,7 +673,7 @@ xml_parse_tag_close :: (using parser: *XML_Parser) -> bool
 	ctx := pop(*context_stack);
 	debug_print("xml_parse_tag_close - tag=% ...\n", ctx.tag);
 
-	if ctx.next_step == .EXPECTS_SHORT_CLOSE
+	if ctx.no_body
 	{
 		return generic_parse_exact_word(*remainer, "/>");
 	}
@@ -717,10 +706,12 @@ xml_parse_XML_Elem_as_text ::(using parser: *XML_Parser, elem: *XML_Elem) -> boo
 	}
 
 	elem.text = copy_string(text);
-	elem.type = .LEAF;
+
+	assert(elem.children.count==0);
+	assert(elem.attrs.count==0);
+	assert(elem.tag == "");
 
 	debug_print("xml_parse_XML_Elem_as_text - result: '%'\n", elem.text );
-
 
 	return true;
 }
@@ -731,9 +722,11 @@ xml_parse_object :: (using parser: *XML_Parser, tis: *Type_Info_Struct, data: *v
 	if tis == type_info(XML_Elem)
 	{
 		elem := cast(*XML_Elem)data;
+		init_data_with_type(elem, tis);
+
 		if xml_parse_XML_Elem_as_text(parser, elem)
 		{
-			debug_print("text: %\n", elem.text);
+			debug_print("xml_parse_object -- found XML_Elem as text: '%'\n", elem.text);
 			return true;
 		}
 	}
