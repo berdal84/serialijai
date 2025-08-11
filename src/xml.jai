@@ -345,10 +345,10 @@ xml_parse_attribute_value :: (using parser: *XML_Parser, ti: *Type_Info, out_dat
 {
 	value_as_string : string;
 
-	if !generic_parse_string_view(*value_as_string, *remainer)
-	{
-		return error(parser, "Unable to parse attribute value\n");
-	}
+	// using " or ' as delimiter
+	if !generic_parse_string_view(*value_as_string, *remainer, delimiter= #char "\"")
+		if !generic_parse_string_view(*value_as_string, *remainer, delimiter= #char "'")
+			return error(parser, "Unable to parse attribute value\n");
 
 	if ti.type == {
 		case .STRING;

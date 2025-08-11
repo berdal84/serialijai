@@ -476,19 +476,16 @@ generic_parse_string :: (out_data: *string, in_text: *string) -> bool
 	return false;
 }
 
-generic_parse_string_view :: (out_data: *string, in_text: *string) -> bool
+generic_parse_string_view :: (out_data: *string, in_text: *string, $delimiter := #char "\"", $escape := #char "\\") -> bool
 {
 	assert(out_data != null);
-
-	separator :: #char "\"";
-	escape    :: #char "\\";
 
 	debug_print("generic_parse_string ...\n");
 	defer debug_print("generic_parse_string (end)\n");
 
 	eat_spaces(in_text);
 
-	if !eat_char(in_text, separator)
+	if !eat_char(in_text, delimiter)
 	{
 		return false;
 	}
@@ -499,10 +496,10 @@ generic_parse_string_view :: (out_data: *string, in_text: *string) -> bool
 	escape_next_char := false;
 	while (true)
 	{
-		debug_print("generic_parse_string() - Searching double quote... %\n", string.{ data=begin, count=current_char-begin+1 } );
-		if !escape_next_char && current_char.* ==  separator
+		debug_print("generic_parse_string() - Searching delimiter: % ... %\n", delimiter, string.{ data=begin, count=current_char-begin+1 } );
+		if !escape_next_char && current_char.* ==  delimiter
         {
-        	debug_print("generic_parse_string() - Searching double quote... FOUND at pos %\n", current_char-begin);
+        	debug_print("generic_parse_string() - Searching delimiter: % ... FOUND at pos %\n", delimiter, current_char-begin);
         	break;
         }
 		
