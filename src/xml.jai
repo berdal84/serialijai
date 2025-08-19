@@ -46,6 +46,11 @@ xml_elem_find_attr :: (elem: XML_Elem, attr_name: string) -> *XML_Attr
 	return table_find_pointer(*elem.attrs, attr_name);
 }
 
+xml_elem_add_attr :: (elem: XML_Elem, attr_name: string, value: $T) -> *XML_Attr
+{
+	table_add(*elem.attrs, attr_name, value);
+}
+
 //
 // XML Parser
 //

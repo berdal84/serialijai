@@ -694,13 +694,6 @@ init_data_with_type :: (data: *void, data_ti: *Type_Info)
 	memset(data, 0, data_ti.runtime_size);
 }
 
-debug_print :: (string_format: string, args: ..Any) #expand
-{
-	#if DEBUG {
-		print(string_format, ..args);;
-	}
-}
-
 tprint_type :: (info: *Type_Info, print_parameters_matching_defaults := false) -> string
 {
 	builder: String_Builder;
@@ -709,6 +702,13 @@ tprint_type :: (info: *Type_Info, print_parameters_matching_defaults := false) -
 }
 
 #scope_module
+
+debug_print :: (string_format: string, args: ..Any) #expand
+{
+	#if DEBUG {
+		print(string_format, ..args);;
+	}
+}
 
 Parser_Report :: struct
 {
