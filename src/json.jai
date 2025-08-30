@@ -393,7 +393,7 @@ JSON_Parser :: struct
 
 	parse_integer            = generic_parse_integer;
 	parse_float              = generic_parse_float;    
-	parse_string             = generic_parse_string;   
+	parse_string             = json_parse_string;   
 	parse_bool               = generic_parse_bool;     
 	parse_null               = generic_parse_null; 
 }
@@ -450,6 +450,11 @@ make_report :: (parser : *JSON_Parser) -> Parser_Report
 	}
 
 	return report;
+}
+
+json_parse_string :: (out: *string, in: *string) -> bool
+{
+	return generic_parse_quoted_string(out, in, escape_char = #char "\\");
 }
 
 json_parse_null :: (in_text: *string) -> bool

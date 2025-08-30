@@ -15,6 +15,11 @@ main :: ()
 	test_begin();
 
 	//
+	// Generic tests
+	//
+	test_generic_parse__string();
+
+	//
 	// XML tests
 	//
 	test_xml_parse__basics();
@@ -38,6 +43,48 @@ main :: ()
 }
 
 #scope_file
+
+//------------------------------------------------------------------------------
+//
+// Generic tests
+//
+//------------------------------------------------------------------------------
+
+test_generic_parse__string :: ()
+{
+	print_title("test_generic_parse__string");
+
+	{
+		quoted_string    :: "\"a string requires doublequotes\"";
+		view   := quoted_string;
+		result : string;
+		ok := generic_parse_quoted_string(*result, *view,, allocator=temp);
+
+		expect(ok);
+		expect(result == "a string requires doublequotes");
+	}
+
+	{
+		quoted_string    :: "\"This has \\\"escaped\\\" chars.\"";
+		view   := quoted_string;
+		result : string;
+		ok := generic_parse_quoted_string(*result, *view,, allocator=temp);
+
+		expect(ok);
+		expect(result == "This has \"escaped\" chars.");
+	}
+
+	{
+		quoted_string    :: "\"This is an anti-slash: '\\\\'\"";
+		view   := quoted_string;
+		result : string;
+		ok := generic_parse_quoted_string(*result, *view,, allocator=temp);
+
+		expect(ok);
+		expect(result == "This is an anti-slash: '\\'");
+	}
+
+}
 
 //------------------------------------------------------------------------------
 //

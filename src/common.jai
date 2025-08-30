@@ -465,18 +465,46 @@ generic_parse_float_T :: (out_float: *$T, in_text: *string ) -> bool
 	return true;
 }	
 
-generic_parse_string :: (out_data: *string, in_text: *string) -> bool
+generic_parse_quoted_string :: (out_data: *string, in_text: *string, escape_char := #char "\\") -> bool
 {
 	view : string;
-	if generic_parse_string_view(*view, in_text)
+	if generic_parse_quoted_stringview(*view, in_text)
 	{
-		out_data.* = copy_string(view);
+		//
+		// remove escape_char if followed by an other char
+		//
+		chars  : [..]u8;
+		chars.allocator = temp;
+		array_reserve(*chars, view.count);
+		cursor := 0;
+		while cursor < view.count
+		{
+			// Skip the escape_char, and append the following char
+			if view[cursor] == escape_char
+			{
+				cursor += 1;
+				if cursor < view.count array_add(*chars, view[cursor]);
+			}
+			// Append current char
+			else
+			{
+				array_add(*chars, view[cursor]);
+			}
+
+			cursor += 1;
+		}
+
+		//
+		// assign result
+		//
+		out_data.* = copy_string(xx chars);
+
 		return true;
 	}
 	return false;
 }
 
-generic_parse_string_view :: (out_data: *string, in_text: *string, $delimiter := #char "\"", $escape := #char "\\") -> bool
+generic_parse_quoted_stringview :: (out_data: *string, in_text: *string, $delimiter := #char "\"", $escape := #char "\\") -> bool
 {
 	assert(out_data != null);
 
