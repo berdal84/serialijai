@@ -41,6 +41,42 @@ xml_elem_get_attr :: (elem: XML_Elem, attr_name: string) -> XML_Attr
 	return pointer.*;
 }
 
+xml_attr_type_from_type :: ($T: Type) -> XML_Attr_Type
+{
+	ti :: cast(*void)type_info(T);
+
+	if ti == {
+		case type_info(bool);    return .BOOLEAN;
+		case type_info(string);  return .STRING;
+		case type_info(float64); return .NUMBER;
+		case;
+			assert(false, "Incompatible type, use bool, string, or float64 (T is %)", T);
+	}
+	return .NULL;
+}
+
+
+xml_elem_get_attr_value_or :: (elem: XML_Elem, attr_name: string, default_value: $T) -> T
+{
+	pointer := xml_elem_find_attr(elem, attr_name);
+	
+	if pointer == null then return default_value;
+
+	desired_xml_attr_type :: #run xml_attr_type_from_type(T);
+
+	assert(
+		desired_xml_attr_type == pointer.type
+		,"You're trying to get an attribute value from/to the wrong type. (desired: % => actual: %)\n"
+		, desired_xml_attr_type, pointer.type );
+
+	#if #complete desired_xml_attr_type == {
+		case .BOOLEAN; return pointer.boolean;
+		case .NUMBER;  return pointer.number;
+		case .STRING;  return pointer.str;
+		case .NULL;    return default_value; 
+	}
+}
+
 xml_elem_find_attr :: (elem: XML_Elem, attr_name: string) -> *XML_Attr
 {
 	return table_find_pointer(*elem.attrs, attr_name);
