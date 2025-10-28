@@ -655,7 +655,7 @@ print_report :: (report: Parser_Report)
 	print("\n");
 }
 
-eat_spaces :: ( text: *string, spaces := " \n\t" ) -> s64
+eat_spaces :: ( text: *string, spaces := " \r\n\t" ) -> s64
 {
 	begin := text.data;
 	while text.count && is_any(text.*[0], spaces)
@@ -767,4 +767,14 @@ copy_message :: (using message: Parser_Message) -> Parser_Message
 		data_addr=data_addr,
 		loc=loc
 	};
+}
+
+// On Windows, these function do not exist,
+// in order to compile quickly I declare empty procs.
+set_console_color :: (any: ..Any)
+{
+}
+
+reset_console_color :: ()
+{
 }
