@@ -23,16 +23,11 @@ JSON_Any :: struct
 		array   : [..]JSON_Any;
 		object  : *JSON_Object;
 	};
-#place boolean;
-	b: bool = ---;
-#place number;
-	n: float64 = ---;
-#place str;
-	s: string = ---;
-#place array;
-	a: [..]JSON_Any = ---;
-#place object;
-	o: *JSON_Object = ---;
+	#overlay(boolean) b: bool    = ---;
+	#overlay(number)  n: float64 = ---;
+    #overlay(str)     s: string  = ---;
+    #overlay(array)   a: [..]JSON_Any = ---;
+	#overlay(object)  o: *JSON_Object = ---;
 }
 
 JSON_Any_Type :: enum u8

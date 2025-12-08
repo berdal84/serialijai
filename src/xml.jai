@@ -12,22 +12,21 @@ XML_Elem :: struct @xml:tag=*
 	text     : string;
 }
 
-XML_Attr :: struct {
+XML_Attr :: struct
+{
 	type: XML_Attr_Type;
 	union {
 		number  : float64;
 		str     : string;
 		boolean : bool;
 	}
-#place boolean;
-	b: bool = ---;
-#place number;
-	n: float64 = ---;
-#place str;
-	s: string = ---;
+	#overlay(boolean) b : bool    = ---;
+	#overlay(number)  n : float64 = ---;
+	#overlay(str)     s : string  = ---;
 }
 
-XML_Attr_Type :: enum {
+XML_Attr_Type :: enum
+{
 	NULL    :: 0;
 	NUMBER  :: 1;
 	STRING  :: 2;
@@ -178,7 +177,7 @@ xml_parse_object_body :: (using parser: *XML_Parser, tis: *Type_Info_Struct, dat
 			{
 				elem.text = copy_string(only_child.text);
 				
-				xml_release(*only_child);
+				xml_release(only_child);
 
 				elem.children.count = 0;
 			}
